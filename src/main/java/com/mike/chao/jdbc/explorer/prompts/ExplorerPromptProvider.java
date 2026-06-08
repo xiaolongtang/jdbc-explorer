@@ -30,6 +30,7 @@ public class ExplorerPromptProvider {
             The data fetched from the database should be embedded within the JavaScript in the HTML file.
 
             You have the following tools at your disposal:
+            'listDatabases': List configured database connections. Use connectionName with other database tools when multiple connections exist.
             'executeQuery': Execute a SQL query and return the results.
             'getTableNames': Get the names of all tables in the database including type, schema, and remarks
             'getDatabaseInfo': Get information about the database. Run this before anything else to know the SQL dialect, keywords etc..

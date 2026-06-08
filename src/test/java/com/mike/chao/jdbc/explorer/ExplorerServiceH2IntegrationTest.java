@@ -12,12 +12,16 @@ import com.mike.chao.jdbc.explorer.data.ForeignKeyDetail;
 import com.mike.chao.jdbc.explorer.data.IndexDetail;
 import com.mike.chao.jdbc.explorer.data.TableDetails;
 import com.mike.chao.jdbc.explorer.data.TableInfo;
+import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
+import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 
+import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,6 +110,34 @@ class ExplorerServiceH2IntegrationTest {
         assertEquals(3, allUsers.size());
         assertNull(allUsers.get(2).get("Email")); // CharlieBrown has null email
         assertEquals(0, allUsers.get(2).get("Points")); // CharlieBrown has 0 points (default)
+    }
+
+    @Test
+    void testExecuteQueryWithNamedConnection() throws SQLException {
+        JdbcDataSource primaryDataSource = createNamedH2DataSource("primarydb", "primary");
+        JdbcDataSource analyticsDataSource = createNamedH2DataSource("analyticsdb", "analytics");
+
+        Map<String, DataSource> dataSources = new LinkedHashMap<>();
+        dataSources.put("primary", primaryDataSource);
+        dataSources.put("analytics", analyticsDataSource);
+
+        Map<String, DatabaseConnectionInfo> connectionInfo = new LinkedHashMap<>();
+        connectionInfo.put(
+            "primary",
+            new DatabaseConnectionInfo("primary", primaryDataSource.getURL(), "sa", "org.h2.Driver", true)
+        );
+        connectionInfo.put(
+            "analytics",
+            new DatabaseConnectionInfo("analytics", analyticsDataSource.getURL(), "sa", "org.h2.Driver", false)
+        );
+
+        ExplorerService multiDatabaseExplorerService = new ExplorerService(
+            new DataSourceRegistry("primary", dataSources, connectionInfo)
+        );
+
+        assertEquals("primary", multiDatabaseExplorerService.executeQuery("SELECT name FROM marker").getFirst().get("NAME"));
+        assertEquals("analytics", multiDatabaseExplorerService.executeQuery("SELECT name FROM marker", "analytics").getFirst().get("NAME"));
+        assertEquals(2, multiDatabaseExplorerService.listDatabases().size());
     }
 
     @Test
@@ -224,5 +256,21 @@ class ExplorerServiceH2IntegrationTest {
         assertTrue(orderDateIndex.isPresent());
         assertEquals("OrderDate", orderDateIndex.get().columnName());
         assertFalse(orderDateIndex.get().unique()); // Our index is not unique
+    }
+
+    private JdbcDataSource createNamedH2DataSource(String databaseName, String markerValue) throws SQLException {
+        JdbcDataSource dataSource = new JdbcDataSource();
+        dataSource.setURL("jdbc:h2:mem:%s;DB_CLOSE_DELAY=-1".formatted(databaseName));
+        dataSource.setUser("sa");
+        dataSource.setPassword("");
+
+        try (Connection conn = dataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("DROP TABLE IF EXISTS marker");
+            stmt.execute("CREATE TABLE marker (name VARCHAR(100))");
+            stmt.execute("INSERT INTO marker (name) VALUES ('%s')".formatted(markerValue));
+        }
+
+        return dataSource;
     }
 }

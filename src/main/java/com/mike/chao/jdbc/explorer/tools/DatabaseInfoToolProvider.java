@@ -11,6 +11,7 @@ import javax.sql.DataSource;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
@@ -27,12 +28,19 @@ import io.modelcontextprotocol.spec.McpSchema.TextContent;
 @Component
 public class DatabaseInfoToolProvider {
 
-    private final DataSource dataSource;
+    private static final String CONNECTION_NAME_ARG_KEY = "connectionName";
+
+    private final DataSourceRegistry dataSourceRegistry;
     private final ObjectMapper objectMapper;
 
     private static final McpSchema.JsonSchema inputSchema = new McpSchema.JsonSchema(
             "object", 
-            Map.of(), 
+            Map.of(
+                CONNECTION_NAME_ARG_KEY, Map.of(
+                    "type", "string",
+                    "description", "Database connection name from listDatabases. Omit to use the default connection."
+                )
+            ),
             List.of(), 
             false
     );
@@ -48,9 +56,13 @@ public class DatabaseInfoToolProvider {
         List<String> sqlKeywords
     ) {}
 
-    public DatabaseInfoToolProvider(DataSource dataSource, ObjectMapper objectMapper) {
-        this.dataSource = dataSource;
+    public DatabaseInfoToolProvider(DataSourceRegistry dataSourceRegistry, ObjectMapper objectMapper) {
+        this.dataSourceRegistry = dataSourceRegistry;
         this.objectMapper = objectMapper;
+    }
+
+    public DatabaseInfoToolProvider(DataSource dataSource, ObjectMapper objectMapper) {
+        this(DataSourceRegistry.single(dataSource), objectMapper);
     }
 
     /**
@@ -80,11 +92,12 @@ public class DatabaseInfoToolProvider {
      * @return The result containing database information as JSON
      */
     private McpSchema.CallToolResult handleGetDatabaseInfo(McpSyncServerExchange exchange, Map<String, Object> args) {
+        String connectionName = extractConnectionName(args);
         exchange.loggingNotification(LoggingMessageNotification.builder()
             .data("Getting database info...")
             .level(LoggingLevel.INFO)
             .build());
-        try (var conn = dataSource.getConnection()) {
+        try (var conn = dataSourceRegistry.getDataSource(connectionName).getConnection()) {
             var metaData = conn.getMetaData();    
             var dbInfo = collectDatabaseMetaData(metaData);
 
@@ -109,6 +122,14 @@ public class DatabaseInfoToolProvider {
                     """.formatted(e.getMessage());
             return new McpSchema.CallToolResult(List.of(new TextContent(errorMessage)), true);
         }
+    }
+
+    private String extractConnectionName(Map<String, Object> args) {
+        if (args == null) {
+            return null;
+        }
+        Object connectionName = args.get(CONNECTION_NAME_ARG_KEY);
+        return connectionName instanceof String value && !value.isBlank() ? value : null;
     }
 
     private DatabaseInfo collectDatabaseMetaData(DatabaseMetaData metaData) throws SQLException {

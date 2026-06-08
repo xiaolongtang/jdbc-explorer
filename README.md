@@ -19,11 +19,13 @@ The server contains the following tools.
     - Executes a SQL query against the connected database, returning the results
     - Inputs:
         - `query` (string): the SQL query to be executed
+        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
 
 - **getTableNames**
 
     - Gets the table names, including type, schema, and remarks
-    - Inputs: none
+    - Inputs:
+        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
 
 - **describeTable**
     
@@ -32,10 +34,17 @@ The server contains the following tools.
         - `catalog` (string, optional): Catalog Name
         - `schema` (string, optional): Schema Name
         - `tableName` (string): Name of the table to get description for
+        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
 
 - **getDatabaseInfo**
 
     - Get information about the database including SQL dialect, keywords, database product name, etc.
+    - Inputs:
+        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
+
+- **listDatabases**
+
+    - Lists configured database connections and identifies the default connection.
     - Inputs: none
 
 ## Prompts 📄
@@ -135,6 +144,73 @@ Add this to your `claude_desktop_config.json`:
 			]
 		  }
 	}
+}
+```
+
+#### Multiple databases from a JSON config file
+
+You can keep using the single database flags above, or provide a JSON file path with `--config-file`. Each database gets a stable `name`; use that value as `connectionName` when calling database tools. If `connectionName` is omitted, the configured `default` connection is used.
+
+Example `databases.json`:
+
+```json
+{
+  "default": "h2_reporting",
+  "databases": [
+    {
+      "name": "h2_reporting",
+      "url": "jdbc:h2:file:C:\\\\mcp\\\\db\\\\reporting",
+      "username": "sa",
+      "password": ""
+    },
+    {
+      "name": "h2_archive",
+      "url": "jdbc:h2:file:C:\\\\mcp\\\\db\\\\archive",
+      "username": "sa",
+      "password": ""
+    },
+    {
+      "name": "postgres_sales",
+      "url": "jdbc:postgresql://localhost:5432/sales",
+      "username": "dbuser",
+      "password": "dbpassword"
+    }
+  ]
+}
+```
+
+Claude Desktop config:
+
+```json
+{
+    "mcpServers": {
+        "jdbc-explorer": {
+            "command": "java",
+            "args": [
+                "-jar",
+                "C:\\\\mcp\\\\jdbc.explorer-0.4.0.jar",
+                "--config-file=C:\\\\mcp\\\\jdbc-explorer\\\\databases.json"
+            ]
+        }
+    }
+}
+```
+
+Named object format is also supported:
+
+```json
+{
+  "defaultConnectionName": "warehouse",
+  "warehouse": {
+    "url": "jdbc:h2:file:C:\\\\mcp\\\\db\\\\warehouse",
+    "username": "sa",
+    "password": ""
+  },
+  "postgres_sales": {
+    "url": "jdbc:postgresql://localhost:5432/sales",
+    "username": "dbuser",
+    "password": "dbpassword"
+  }
 }
 ```
 

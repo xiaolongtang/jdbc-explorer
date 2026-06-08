@@ -21,6 +21,8 @@ import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
+import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
 import com.mike.chao.jdbc.explorer.data.ColumnDetail;
 import com.mike.chao.jdbc.explorer.data.ForeignKeyDetail;
 import com.mike.chao.jdbc.explorer.data.IndexDetail;
@@ -30,18 +32,29 @@ import com.mike.chao.jdbc.explorer.data.TableInfo;
 @Service
 public class ExplorerService {
 
-    private final DataSource dataSource;
+    private final DataSourceRegistry dataSourceRegistry;
     private final Logger logger = LoggerFactory.getLogger(ExplorerService.class);
 
     @Autowired
+    public ExplorerService(DataSourceRegistry dataSourceRegistry) {
+        this.dataSourceRegistry = dataSourceRegistry;
+    }
+
     public ExplorerService(DataSource dataSource) {
-        this.dataSource = dataSource;
+        this(DataSourceRegistry.single(dataSource));
+    }
+
+    @Tool(name = "listDatabases", description = "List configured database connections and the default connection name")
+    public List<DatabaseConnectionInfo> listDatabases() {
+        return dataSourceRegistry.listConnectionInfo();
     }
 
     @Tool(name = "executeQuery", description = "Execute a SQL query and return the results")
-    public List<Map<String, Object>> executeQuery(@ToolParam(description = "SQL query to execute", required = true) String query) {
+    public List<Map<String, Object>> executeQuery(
+        @ToolParam(description = "SQL query to execute", required = true) String query,
+        @ToolParam(description = "Database connection name from listDatabases. Omit to use the default connection.", required = false) String connectionName) {
         List<Map<String, Object>> results = new ArrayList<>();
-        try (var conn = dataSource.getConnection();
+        try (var conn = getDataSource(connectionName).getConnection();
             var stmt = conn.createStatement();
             var rs = stmt.executeQuery(query)) {
             var rsmd = rs.getMetaData();
@@ -63,10 +76,15 @@ public class ExplorerService {
         return results;
     }
 
+    public List<Map<String, Object>> executeQuery(String query) {
+        return executeQuery(query, null);
+    }
+
     @Tool(name = "getTableNames", description = "Get all table names from the database, including type, schema, and remarks")
-    public List<TableInfo> getTableNames() {
+    public List<TableInfo> getTableNames(
+        @ToolParam(description = "Database connection name from listDatabases. Omit to use the default connection.", required = false) String connectionName) {
         List<TableInfo> tables = new ArrayList<>();
-        try (var conn = dataSource.getConnection()) {
+        try (var conn = getDataSource(connectionName).getConnection()) {
             var metaData = conn.getMetaData();
             String[] types = {"TABLE"}; // Only include tables, exclude views and system tables
             try (var rs = metaData.getTables(null, null, "%", types)) {
@@ -89,12 +107,17 @@ public class ExplorerService {
         return tables;
     }
 
+    public List<TableInfo> getTableNames() {
+        return getTableNames(null);
+    }
+
     @Tool(name = "describeTable", description = "Describe a table in the database, including column information, primary keys, foreign keys, and indexes.")
     public TableDetails describeTable(
         @ToolParam(description = "Catalog Name", required = false) String catalog,
         @ToolParam(description = "Schema Name", required = false) String schema,
-        @ToolParam(description = "Name of the table to get description for") String tableName) {
-        try (var conn = dataSource.getConnection()) {
+        @ToolParam(description = "Name of the table to get description for") String tableName,
+        @ToolParam(description = "Database connection name from listDatabases. Omit to use the default connection.", required = false) String connectionName) {
+        try (var conn = getDataSource(connectionName).getConnection()) {
             var metaData = conn.getMetaData();
             // Check if the table exists
             try (ResultSet tables = metaData.getTables(catalog, schema, tableName, new String[] {"TABLE"})) {
@@ -121,6 +144,10 @@ public class ExplorerService {
             ToolDefinition toolDefinition = getToolDefinition("describeTable");
             throw new ToolExecutionException(toolDefinition, e);
         }
+    }
+
+    public TableDetails describeTable(String catalog, String schema, String tableName) {
+        return describeTable(catalog, schema, tableName, null);
     }
 
     private List<ColumnDetail> fetchColumnDetails(DatabaseMetaData metaData, String catalog, String schema, String tableName) throws java.sql.SQLException {
@@ -184,6 +211,10 @@ public class ExplorerService {
             }
         }
         return indexes;
+    }
+
+    private DataSource getDataSource(String connectionName) {
+        return dataSourceRegistry.getDataSource(connectionName);
     }
 
     /**

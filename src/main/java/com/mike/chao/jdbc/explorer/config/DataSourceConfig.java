@@ -201,10 +201,10 @@ public class DataSourceConfig {
     }
 
     private String firstConnectionName(List<DatabaseConnectionProperties> connections) {
-        if (connections.isEmpty() || !StringUtils.hasText(connections.getFirst().name())) {
+        if (connections.isEmpty() || !StringUtils.hasText(connections.get(0).name())) {
             throw new IllegalArgumentException("The first database connection must define a name.");
         }
-        return connections.getFirst().name();
+        return connections.get(0).name();
     }
 
     private JsonNode firstPresent(JsonNode root, String... fieldNames) {

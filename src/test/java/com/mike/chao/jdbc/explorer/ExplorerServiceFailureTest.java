@@ -3,12 +3,12 @@ package com.mike.chao.jdbc.explorer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.slf4j.Logger;
 import org.springframework.ai.tool.execution.ToolExecutionException;
 
+import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 import com.mike.chao.jdbc.explorer.data.IndexDetail;
 import com.mike.chao.jdbc.explorer.data.TableDetails;
 
@@ -41,11 +41,12 @@ class ExplorerServiceFailureTest {
     @Mock
     private Logger mockLogger; // Mock the logger
 
-    @InjectMocks
     private ExplorerService explorerService;
 
     @BeforeEach
     void setUp() throws SQLException {
+        explorerService = new ExplorerService(DataSourceRegistry.single(mockDataSource));
+
         // Inject the mocked logger
         try {
             java.lang.reflect.Field loggerField = ExplorerService.class.getDeclaredField("logger");

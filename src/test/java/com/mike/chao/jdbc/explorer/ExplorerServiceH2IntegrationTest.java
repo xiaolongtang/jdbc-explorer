@@ -135,8 +135,8 @@ class ExplorerServiceH2IntegrationTest {
             new DataSourceRegistry("primary", dataSources, connectionInfo)
         );
 
-        assertEquals("primary", multiDatabaseExplorerService.executeQuery("SELECT name FROM marker").getFirst().get("NAME"));
-        assertEquals("analytics", multiDatabaseExplorerService.executeQuery("SELECT name FROM marker", "analytics").getFirst().get("NAME"));
+        assertEquals("primary", multiDatabaseExplorerService.executeQuery("SELECT name FROM marker").get(0).get("NAME"));
+        assertEquals("analytics", multiDatabaseExplorerService.executeQuery("SELECT name FROM marker", "analytics").get(0).get("NAME"));
         assertEquals(2, multiDatabaseExplorerService.listDatabases().size());
     }
 

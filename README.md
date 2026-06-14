@@ -4,6 +4,24 @@ A [Model Context Protocol](https://modelcontextprotocol.io/introduction) server 
 
 [![codecov](https://codecov.io/github/mikechao/jdbc-explorer/graph/badge.svg?token=326RPXDFJP)](https://codecov.io/github/mikechao/jdbc-explorer)
 
+
+## Java version branches
+
+This repository keeps the same JDBC Explorer functionality available on separate Java baseline branches:
+
+| Branch | Java baseline | Notes |
+|--------|---------------|-------|
+| `main` | JDK 21 | Primary branch for the current JDK 21 build. |
+| `main-jdk-17` | JDK 17 | Compatibility branch that builds and runs the same MCP server behavior on JDK 17. |
+
+The `main-jdk-17` branch changes only the build/runtime baseline and related Maven/Docker configuration for JDK 17 compatibility. The exposed MCP tools, prompt, resources, supported JDBC databases, command-line options, and JSON configuration formats are intended to remain functionally identical to `main`.
+
+When building this branch locally, use JDK 17 or newer and run:
+
+```bash
+./mvnw clean package
+```
+
 ## Tools 🛠
 
 The server contains the following tools.

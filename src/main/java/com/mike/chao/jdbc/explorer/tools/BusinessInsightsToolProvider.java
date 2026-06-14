@@ -81,41 +81,37 @@ public class BusinessInsightsToolProvider {
             .data("Adding business insights...")
             .level(LoggingLevel.INFO)
             .build());
-        var result = switch (insight) {
-            case String insightText when !insightText.isBlank() -> {
-                businessInsights.addInsight(insightText);
-                logToolActivity(exchange, "Business insight added successfully.", LoggingLevel.INFO);
-                yield new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent("Business insight added successfully.")), 
-                    false
-                );
-            }
-            case null -> {
-                logToolActivity(exchange, "Error: Business insight input was null.", LoggingLevel.ERROR);
-                yield new McpSchema.CallToolResult(
+        if (insight instanceof String insightText && !insightText.isBlank()) {
+            businessInsights.addInsight(insightText);
+            logToolActivity(exchange, "Business insight added successfully.", LoggingLevel.INFO);
+            return new McpSchema.CallToolResult(
+                List.of(new McpSchema.TextContent("Business insight added successfully.")), 
+                false
+            );
+        }
+        if (insight == null) {
+            logToolActivity(exchange, "Error: Business insight input was null.", LoggingLevel.ERROR);
+            return new McpSchema.CallToolResult(
                 List.of(new McpSchema.TextContent(
                     """
                     {"error": "NullInput", "message": "Business insight cannot be null"}
                     """
                 )), 
                 true
-                );
-            }
-            default -> {
-                String errorMessage = String.format(
-                    """
-                    {"error": "InvalidInputType", "message": "Invalid input type for insight. Expected String.", "receivedType": "%s"}
-                    """,
-                    insight.getClass().getSimpleName()
-                );
-                logToolActivity(exchange, "Error: " + errorMessage, LoggingLevel.ERROR);
-                yield new McpSchema.CallToolResult(
-                    List.of(new McpSchema.TextContent(errorMessage)), 
-                    true
-                );
-            } 
-        };
-        return result;
+            );
+        }
+
+        String errorMessage = String.format(
+            """
+            {"error": "InvalidInputType", "message": "Invalid input type for insight. Expected String.", "receivedType": "%s"}
+            """,
+            insight.getClass().getSimpleName()
+        );
+        logToolActivity(exchange, "Error: " + errorMessage, LoggingLevel.ERROR);
+        return new McpSchema.CallToolResult(
+            List.of(new McpSchema.TextContent(errorMessage)), 
+            true
+        );
     }
 
     private void logToolActivity(McpSyncServerExchange exchange, String message, LoggingLevel level) {

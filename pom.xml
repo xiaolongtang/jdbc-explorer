@@ -39,8 +39,9 @@
 		<tag>HEAD</tag>
 	</scm>
 	<properties>
-		<java.version>21</java.version>
+		<java.version>17</java.version>
 		<spring-ai.version>1.0.0-M8</spring-ai.version>
+		<maven.compiler.release>17</maven.compiler.release>
 		<argLine></argLine>
 	</properties>
 	<dependencies>

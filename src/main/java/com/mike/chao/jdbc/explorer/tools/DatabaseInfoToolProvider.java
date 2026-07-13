@@ -8,6 +8,7 @@ import java.util.Map;
 
 import javax.sql.DataSource;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,6 +57,7 @@ public class DatabaseInfoToolProvider {
         List<String> sqlKeywords
     ) {}
 
+    @Autowired
     public DatabaseInfoToolProvider(DataSourceRegistry dataSourceRegistry, ObjectMapper objectMapper) {
         this.dataSourceRegistry = dataSourceRegistry;
         this.objectMapper = objectMapper;

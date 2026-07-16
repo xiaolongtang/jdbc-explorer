@@ -78,8 +78,9 @@ class ExplorerServiceFailureTest {
 
         assertEquals(sqlEx, ex.getCause());
         verify(mockLogger).error(
-            eq("Error executing query: {} message: {}"),
-            eq(query),
+            eq("Query failed connection={} elapsedMs={} message={}"),
+            eq("default"),
+            anyLong(),
             eq(sqlEx.getMessage()),
             eq(sqlEx)
         );

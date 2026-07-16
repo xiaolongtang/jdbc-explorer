@@ -14,14 +14,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.core.env.Environment;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.util.StringUtils;
+
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Configuration
+@EnableConfigurationProperties(QueryExecutionProperties.class)
 public class DataSourceConfig {
 
     private static final String CONFIG_FILE_PROPERTY = "config-file";
@@ -37,6 +41,15 @@ public class DataSourceConfig {
 
     @Value("${db.password:}")
     private String dbPassword;
+
+    @Value("${db.pool.maximum-size:4}")
+    private int maximumPoolSize;
+
+    @Value("${db.pool.minimum-idle:0}")
+    private int minimumIdle;
+
+    @Value("${db.pool.connection-timeout-ms:10000}")
+    private long connectionTimeoutMs;
 
     @Bean
     public ObjectMapper objectMapper() {
@@ -230,16 +243,23 @@ public class DataSourceConfig {
     }
 
     private DataSource createDataSource(DatabaseConnectionProperties connectionProperties, String driverClassName) {
-        DriverManagerDataSource ds = new DriverManagerDataSource();
-        ds.setUrl(connectionProperties.url());
-        ds.setDriverClassName(driverClassName);
+        HikariConfig config = new HikariConfig();
+        config.setPoolName("jdbc-explorer-" + connectionProperties.name());
+        config.setJdbcUrl(connectionProperties.url());
+        config.setDriverClassName(driverClassName);
+        config.setMaximumPoolSize(maximumPoolSize);
+        config.setMinimumIdle(minimumIdle);
+        config.setConnectionTimeout(connectionTimeoutMs);
+        // Databases that are temporarily unavailable must not prevent the MCP
+        // server from starting or make unrelated configured databases unusable.
+        config.setInitializationFailTimeout(-1);
 
         if (!connectionProperties.url().startsWith("jdbc:sqlite:")) {
-            ds.setUsername(connectionProperties.username());
-            ds.setPassword(connectionProperties.password());
+            config.setUsername(connectionProperties.username());
+            config.setPassword(connectionProperties.password());
         }
 
-        return ds;
+        return new HikariDataSource(config);
     }
 
     private String determineDriverClassName(DatabaseConnectionProperties connectionProperties) {

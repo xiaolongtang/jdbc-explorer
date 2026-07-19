@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.TestPropertySource;
 import org.junit.jupiter.api.io.TempDir;
@@ -42,8 +42,8 @@ class DataSourceConfigTest {
         assertNotNull(dataSourceRegistry);
         assertEquals("default", dataSourceRegistry.getDefaultConnectionName());
         assertEquals(1, dataSourceRegistry.listConnectionInfo().size());
-        assertEquals("jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1", ((DriverManagerDataSource) dataSource).getUrl());
-        assertEquals("sa", ((DriverManagerDataSource) dataSource).getUsername());
+        assertEquals("jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1", ((HikariDataSource) dataSource).getJdbcUrl());
+        assertEquals("sa", ((HikariDataSource) dataSource).getUsername());
     }
 
     @Test
@@ -100,8 +100,8 @@ class DataSourceConfigTest {
                 assertEquals("h2_reporting", registry.getDefaultConnectionName());
                 assertEquals(3, registry.listConnectionInfo().size());
 
-                DriverManagerDataSource defaultDataSource = (DriverManagerDataSource) context.getBean(DataSource.class);
-                assertEquals("jdbc:h2:mem:reporting;DB_CLOSE_DELAY=-1", defaultDataSource.getUrl());
+                HikariDataSource defaultDataSource = (HikariDataSource) context.getBean(DataSource.class);
+                assertEquals("jdbc:h2:mem:reporting;DB_CLOSE_DELAY=-1", defaultDataSource.getJdbcUrl());
 
                 Optional<DatabaseConnectionInfo> postgresInfo = registry.listConnectionInfo().stream()
                     .filter(connection -> "postgres_sales".equals(connection.name()))
@@ -141,8 +141,8 @@ class DataSourceConfigTest {
                 assertEquals(2, registry.listConnectionInfo().size());
                 assertTrue(registry.listConnectionInfo().stream().anyMatch(connection -> "finance".equals(connection.name())));
 
-                DriverManagerDataSource financeDataSource = (DriverManagerDataSource) registry.getDataSource("finance");
-                assertEquals("jdbc:h2:mem:finance;DB_CLOSE_DELAY=-1", financeDataSource.getUrl());
+                HikariDataSource financeDataSource = (HikariDataSource) registry.getDataSource("finance");
+                assertEquals("jdbc:h2:mem:finance;DB_CLOSE_DELAY=-1", financeDataSource.getJdbcUrl());
             });
     }
 

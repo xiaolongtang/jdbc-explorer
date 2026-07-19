@@ -34,10 +34,30 @@ The server contains the following tools.
 
 - **executeQuery**
 
-    - Executes a SQL query against the connected database, returning the results
+    - Executes a SQL query against the connected database, returning a bounded result with `rows`, `truncated`, `rowLimit`, and `elapsedMilliseconds`
     - Inputs:
         - `query` (string): the SQL query to be executed
         - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
+
+### Query safety and concurrency
+
+Each configured database has its own bounded HikariCP connection pool and query concurrency limit. This prevents a burst of parallel MCP tool calls against one database from exhausting connections or starving calls to another database. Query results and individual text/binary cells are bounded before MCP serialization, and queued or running queries have explicit timeouts.
+
+The defaults can be overridden with Spring Boot command-line options:
+
+| Property | Default | Purpose |
+|----------|---------|---------|
+| `db.pool.maximum-size` | `4` | Maximum pooled connections per configured database |
+| `db.pool.minimum-idle` | `0` | Avoid opening unused connections at startup |
+| `db.pool.connection-timeout-ms` | `10000` | Maximum wait for a pooled connection |
+| `db.query.max-rows` | `1000` | Maximum rows returned to the MCP client |
+| `db.query.fetch-size` | `100` | JDBC fetch-size hint |
+| `db.query.timeout-seconds` | `30` | JDBC statement timeout |
+| `db.query.max-concurrent-per-database` | `4` | Fair per-database query concurrency limit |
+| `db.query.queue-timeout-seconds` | `5` | Maximum wait for a query concurrency slot |
+| `db.query.max-cell-characters` | `10000` | Maximum characters or bytes retained per cell |
+
+Keep the pool maximum and query concurrency limit aligned unless the database has a reason to reserve connections for metadata operations. A result with `truncated: true` should be refined with filters, aggregation, or pagination instead of increasing the limit without considering the LLM context size.
 
 - **getTableNames**
 

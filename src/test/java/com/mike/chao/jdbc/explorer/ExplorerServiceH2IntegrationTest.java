@@ -14,6 +14,7 @@ import com.mike.chao.jdbc.explorer.data.TableDetails;
 import com.mike.chao.jdbc.explorer.data.TableInfo;
 import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
 import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
+import com.mike.chao.jdbc.explorer.config.QueryExecutionProperties;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -110,6 +111,24 @@ class ExplorerServiceH2IntegrationTest {
         assertEquals(3, allUsers.size());
         assertNull(allUsers.get(2).get("Email")); // CharlieBrown has null email
         assertEquals(0, allUsers.get(2).get("Points")); // CharlieBrown has 0 points (default)
+    }
+
+    @Test
+    void testExecuteQueryBoundsRowsAndLargeCells() {
+        ExplorerService boundedService = new ExplorerService(
+            DataSourceRegistry.single(h2DataSource),
+            new QueryExecutionProperties(2, 1, 5, 1, 1, 5)
+        );
+
+        QueryResult result = boundedService.executeQueryResult(
+            "SELECT \"UserID\", \"Username\" FROM \"Users\" ORDER BY \"UserID\"",
+            null
+        );
+
+        assertEquals(2, result.rows().size());
+        assertTrue(result.truncated());
+        assertEquals(2, result.rowLimit());
+        assertEquals("Alice…[truncated]", result.rows().get(0).get("Username"));
     }
 
     @Test

@@ -1,12 +1,19 @@
 package com.mike.chao.jdbc.explorer;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.sql.DatabaseMetaData;
+import java.sql.Blob;
+import java.sql.Clob;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 
 import javax.sql.DataSource;
 
@@ -23,6 +30,7 @@ import org.springframework.stereotype.Service;
 
 import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
+import com.mike.chao.jdbc.explorer.config.QueryExecutionProperties;
 import com.mike.chao.jdbc.explorer.data.ColumnDetail;
 import com.mike.chao.jdbc.explorer.data.ForeignKeyDetail;
 import com.mike.chao.jdbc.explorer.data.IndexDetail;
@@ -33,11 +41,18 @@ import com.mike.chao.jdbc.explorer.data.TableInfo;
 public class ExplorerService {
 
     private final DataSourceRegistry dataSourceRegistry;
+    private final QueryExecutionProperties queryProperties;
+    private final Map<String, Semaphore> queryPermits = new ConcurrentHashMap<>();
     private final Logger logger = LoggerFactory.getLogger(ExplorerService.class);
 
     @Autowired
-    public ExplorerService(DataSourceRegistry dataSourceRegistry) {
+    public ExplorerService(DataSourceRegistry dataSourceRegistry, QueryExecutionProperties queryProperties) {
         this.dataSourceRegistry = dataSourceRegistry;
+        this.queryProperties = queryProperties;
+    }
+
+    public ExplorerService(DataSourceRegistry dataSourceRegistry) {
+        this(dataSourceRegistry, new QueryExecutionProperties());
     }
 
     public ExplorerService(DataSource dataSource) {
@@ -49,35 +64,88 @@ public class ExplorerService {
         return dataSourceRegistry.listConnectionInfo();
     }
 
-    @Tool(name = "executeQuery", description = "Execute a SQL query and return the results")
-    public List<Map<String, Object>> executeQuery(
+    @Tool(name = "executeQuery", description = "Execute a SQL query and return a bounded result. The response reports whether rows were truncated.")
+    public QueryResult executeQueryResult(
         @ToolParam(description = "SQL query to execute", required = true) String query,
         @ToolParam(description = "Database connection name from listDatabases. Omit to use the default connection.", required = false) String connectionName) {
+        String resolvedConnectionName = dataSourceRegistry.resolveConnectionName(connectionName);
+        Semaphore permits = queryPermits.computeIfAbsent(
+            resolvedConnectionName,
+            ignored -> new Semaphore(queryProperties.maxConcurrentPerDatabase(), true)
+        );
+        boolean acquired = false;
+        long startedAt = System.nanoTime();
         List<Map<String, Object>> results = new ArrayList<>();
-        try (var conn = getDataSource(connectionName).getConnection();
-            var stmt = conn.createStatement();
-            var rs = stmt.executeQuery(query)) {
-            var rsmd = rs.getMetaData();
-            int columnCount = rsmd.getColumnCount();
-            while (rs.next()) {
-                Map<String, Object> row = new HashMap<>();
-                for (int i = 1; i <= columnCount; i++) {
-                    String columnName = rsmd.getColumnName(i);
-                    Object value = rs.getObject(i);
-                    row.put(columnName, value);
+        try {
+            acquired = permits.tryAcquire(queryProperties.queueTimeoutSeconds(), TimeUnit.SECONDS);
+            if (!acquired) {
+                throw new IllegalStateException(
+                    "Database '%s' is busy; no query slot became available within %d seconds."
+                        .formatted(resolvedConnectionName, queryProperties.queueTimeoutSeconds())
+                );
+            }
+            try (var conn = getDataSource(resolvedConnectionName).getConnection();
+                 var stmt = conn.createStatement()) {
+                stmt.setQueryTimeout(queryProperties.timeoutSeconds());
+                stmt.setFetchSize(queryProperties.fetchSize());
+                stmt.setMaxRows(queryProperties.maxRows() + 1);
+                try (var rs = stmt.executeQuery(query)) {
+                    var rsmd = rs.getMetaData();
+                    int columnCount = rsmd.getColumnCount();
+                    while (results.size() <= queryProperties.maxRows() && rs.next()) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        for (int i = 1; i <= columnCount; i++) {
+                            row.put(rsmd.getColumnLabel(i), boundCellValue(rs.getObject(i)));
+                        }
+                        results.add(row);
+                    }
                 }
-                results.add(row);
+                boolean truncated = results.size() > queryProperties.maxRows();
+                if (truncated) {
+                    results.remove(results.size() - 1);
+                }
+                long elapsedMilliseconds = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+                logger.info("Query completed connection={} rows={} truncated={} elapsedMs={}",
+                    resolvedConnectionName, results.size(), truncated, elapsedMilliseconds);
+                return new QueryResult(results, truncated, queryProperties.maxRows(), elapsedMilliseconds);
             }
         } catch (Exception e) {
-            logger.error("Error executing query: {} message: {}", query, e.getMessage(), e);
+            logger.error("Query failed connection={} elapsedMs={} message={}", resolvedConnectionName,
+                TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt), e.getMessage(), e);
             ToolDefinition toolDefinition = getToolDefinition("executeQuery");
             throw new ToolExecutionException(toolDefinition, e);
+        } finally {
+            if (acquired) {
+                permits.release();
+            }
         }
-        return results;
     }
 
     public List<Map<String, Object>> executeQuery(String query) {
         return executeQuery(query, null);
+    }
+
+    public List<Map<String, Object>> executeQuery(String query, String connectionName) {
+        return executeQueryResult(query, connectionName).rows();
+    }
+
+    private Object boundCellValue(Object value) throws SQLException {
+        if (value instanceof String text && text.length() > queryProperties.maxCellCharacters()) {
+            return text.substring(0, queryProperties.maxCellCharacters()) + "…[truncated]";
+        }
+        if (value instanceof byte[] bytes && bytes.length > queryProperties.maxCellCharacters()) {
+            return Arrays.copyOf(bytes, queryProperties.maxCellCharacters());
+        }
+        if (value instanceof Clob clob) {
+            int retainedLength = (int) Math.min(clob.length(), queryProperties.maxCellCharacters());
+            String retained = clob.getSubString(1, retainedLength);
+            return clob.length() > retainedLength ? retained + "…[truncated]" : retained;
+        }
+        if (value instanceof Blob blob) {
+            int retainedLength = (int) Math.min(blob.length(), queryProperties.maxCellCharacters());
+            return blob.getBytes(1, retainedLength);
+        }
+        return value;
     }
 
     @Tool(name = "getTableNames", description = "Get all table names from the database, including type, schema, and remarks")

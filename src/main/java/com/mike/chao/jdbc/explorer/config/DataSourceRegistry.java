@@ -74,6 +74,12 @@ public class DataSourceRegistry {
         return defaultConnectionName;
     }
 
+    public String resolveConnectionName(String connectionName) {
+        return connectionName == null || connectionName.isBlank()
+            ? defaultConnectionName
+            : connectionName.trim();
+    }
+
     public List<DatabaseConnectionInfo> listConnectionInfo() {
         return dataSources.keySet().stream()
             .map(connectionName -> connectionInfo.getOrDefault(
@@ -85,12 +91,6 @@ public class DataSourceRegistry {
                 )
             ))
             .toList();
-    }
-
-    private String resolveConnectionName(String connectionName) {
-        return connectionName == null || connectionName.isBlank()
-            ? defaultConnectionName
-            : connectionName.trim();
     }
 
     private static String normalizeConnectionName(String connectionName) {

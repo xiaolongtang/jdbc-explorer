@@ -12,6 +12,8 @@ import com.mike.chao.jdbc.explorer.data.ForeignKeyDetail;
 import com.mike.chao.jdbc.explorer.data.IndexDetail;
 import com.mike.chao.jdbc.explorer.data.TableDetails;
 import com.mike.chao.jdbc.explorer.data.TableInfo;
+import com.mike.chao.jdbc.explorer.data.ErDiagram;
+import com.mike.chao.jdbc.explorer.data.RelationshipSource;
 import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
 import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 import com.mike.chao.jdbc.explorer.config.QueryExecutionProperties;
@@ -275,6 +277,41 @@ class ExplorerServiceH2IntegrationTest {
         assertTrue(orderDateIndex.isPresent());
         assertEquals("OrderDate", orderDateIndex.get().columnName());
         assertFalse(orderDateIndex.get().unique()); // Our index is not unique
+    }
+
+
+    @Test
+    void testGenerateErDiagramIncludesExplicitAndInferredRelationships() throws SQLException {
+        try (Connection conn = h2DataSource.getConnection();
+             Statement stmt = conn.createStatement()) {
+            stmt.execute("DROP TABLE IF EXISTS \"Invoices\"");
+            stmt.execute("CREATE TABLE \"Invoices\" (" +
+                         "\"InvoiceID\" INT PRIMARY KEY, " +
+                         "\"UserID\" INT, " +
+                         "\"Amount\" DECIMAL(10, 2)" +
+                         ")");
+        }
+
+        ErDiagram diagram = explorerService.generateErDiagram(null, "PUBLIC", "Users,Orders,Invoices", true);
+
+        assertEquals("svg", diagram.format());
+        assertEquals("image/svg+xml", diagram.mediaType());
+        assertTrue(diagram.svg().startsWith("<svg"));
+        assertTrue(diagram.svg().contains("Users"));
+        assertTrue(diagram.svg().contains("Orders"));
+        assertTrue(diagram.svg().contains("Invoices"));
+        assertTrue(diagram.relationships().stream().anyMatch(relationship ->
+            relationship.source() == RelationshipSource.EXPLICIT_FOREIGN_KEY
+                && "Orders".equals(relationship.fromTable())
+                && "UserID".equals(relationship.fromColumn())
+                && "Users".equals(relationship.toTable())
+        ));
+        assertTrue(diagram.relationships().stream().anyMatch(relationship ->
+            relationship.source() == RelationshipSource.INFERRED_BY_COLUMN_NAME
+                && "Invoices".equals(relationship.fromTable())
+                && "UserID".equals(relationship.fromColumn())
+                && "Users".equals(relationship.toTable())
+        ));
     }
 
     private JdbcDataSource createNamedH2DataSource(String databaseName, String markerValue) throws SQLException {

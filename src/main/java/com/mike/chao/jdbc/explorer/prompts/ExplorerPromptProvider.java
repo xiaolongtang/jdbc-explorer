@@ -35,6 +35,7 @@ public class ExplorerPromptProvider {
             'getTableNames': Get the names of all tables in the database including type, schema, and remarks
             'getDatabaseInfo': Get information about the database. Run this before anything else to know the SQL dialect, keywords etc..
             'describeTable': Describe a table in the database, including column information, primary keys, foreign keys, and indexes.
+            'analyzeSqlOptimization': MCP-provided SQL optimization signals: EXPLAIN output, schema/index metadata, detected anti-patterns, index cost notes, normalized SQL fingerprint, and database-version compatibility context. The LLM must interpret these signals, rank risks, and draft SQL rewrite/index recommendations.
             'addBusinessInsight': Append a business insight to the memo, which is a list of insights discovered from data analysis.
 
             1. Examine the database schema and understand the relationships between tables.

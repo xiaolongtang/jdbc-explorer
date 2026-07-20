@@ -19,6 +19,8 @@ import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.sql.DataSource;
 
@@ -44,6 +46,8 @@ import com.mike.chao.jdbc.explorer.data.IndexDetail;
 import com.mike.chao.jdbc.explorer.data.TableDetails;
 import com.mike.chao.jdbc.explorer.data.TableInfo;
 import com.mike.chao.jdbc.explorer.data.RelationshipSource;
+import com.mike.chao.jdbc.explorer.optimization.IndexRecommendation;
+import com.mike.chao.jdbc.explorer.optimization.SqlOptimizationReport;
 
 @Service
 public class ExplorerService {
@@ -126,6 +130,99 @@ public class ExplorerService {
             if (acquired) {
                 permits.release();
             }
+        }
+    }
+
+
+    @Tool(name = "analyzeSqlOptimization", description = "Collect database-side SQL optimization signals for an LLM. Optionally runs EXPLAIN, inspects referenced table metadata and indexes, flags common anti-patterns, recommends candidate indexes with write/storage cost notes, estimates relative query cost, normalizes similar SQL, and reports database-version compatibility notes.")
+    public SqlOptimizationReport analyzeSqlOptimization(
+        @ToolParam(description = "SQL query to optimize", required = true) String sql,
+        @ToolParam(description = "Catalog Name for metadata lookup", required = false) String catalog,
+        @ToolParam(description = "Schema Name for metadata lookup", required = false) String schema,
+        @ToolParam(description = "Run EXPLAIN for the query. Defaults to true.", required = false) Boolean runExplain,
+        @ToolParam(description = "Database connection name from listDatabases. Omit to use the default connection.", required = false) String connectionName) {
+        List<Map<String, Object>> explainPlan = new ArrayList<>();
+        List<String> issues = new ArrayList<>();
+        List<String> rewrites = new ArrayList<>();
+        List<IndexRecommendation> indexes = new ArrayList<>();
+        List<String> reuse = new ArrayList<>();
+        List<String> compatibility = new ArrayList<>();
+        List<TableDetails> metadata = new ArrayList<>();
+        boolean explainExecuted = false;
+        try (var conn = getDataSource(connectionName).getConnection()) {
+            DatabaseMetaData dbMeta = conn.getMetaData();
+            String productName = dbMeta.getDatabaseProductName();
+            String productVersion = dbMeta.getDatabaseProductVersion();
+            if (runExplain == null || runExplain) {
+                try (var stmt = conn.createStatement()) {
+                    stmt.setQueryTimeout(queryProperties.timeoutSeconds());
+                    stmt.setMaxRows(50);
+                    try (var rs = stmt.executeQuery(explainPrefix(productName) + sql)) {
+                        var rsmd = rs.getMetaData();
+                        while (rs.next()) {
+                            Map<String, Object> row = new LinkedHashMap<>();
+                            for (int i = 1; i <= rsmd.getColumnCount(); i++) {
+                                row.put(rsmd.getColumnLabel(i), boundCellValue(rs.getObject(i)));
+                            }
+                            explainPlan.add(row);
+                        }
+                        explainExecuted = true;
+                    }
+                } catch (Exception e) {
+                    issues.add("EXPLAIN execution failed: " + e.getMessage());
+                }
+            }
+
+            Set<String> referencedTables = referencedTables(sql);
+            for (String table : referencedTables) {
+                try {
+                    metadata.add(new TableDetails(
+                        table,
+                        fetchColumnDetails(dbMeta, catalog, schema, table),
+                        fetchPrimaryKeyColumns(dbMeta, catalog, schema, table),
+                        fetchForeignKeyDetails(dbMeta, catalog, schema, table),
+                        fetchIndexDetails(dbMeta, catalog, schema, table)
+                    ));
+                } catch (Exception e) {
+                    issues.add("Could not inspect table metadata for " + table + ": " + e.getMessage());
+                }
+            }
+
+            String lower = sql.toLowerCase(java.util.Locale.ROOT);
+            String planText = explainPlan.toString().toLowerCase(java.util.Locale.ROOT);
+            if (planText.contains("table scan") || planText.contains("seq scan") || planText.contains("full") || planText.contains("scan")) {
+                issues.add("Execution plan indicates a possible full/large table scan; validate predicates and available indexes.");
+            }
+            if (lower.contains(" join ") && !lower.contains(" on ") && !lower.contains(" using ")) {
+                issues.add("JOIN without ON/USING may create a Cartesian product or inefficient join.");
+                rewrites.add("Add explicit JOIN predicates and prefer selective join keys backed by indexes.");
+            }
+            if (Pattern.compile("where\\s+\\w+\\s*\\(", Pattern.CASE_INSENSITIVE | Pattern.DOTALL).matcher(sql).find()) {
+                issues.add("A function appears in the WHERE predicate and may make a normal index unusable.");
+                rewrites.add("Move functions to constants/generated columns, or create a function-based index where supported.");
+            }
+            if (countOccurrences(lower, "select") > 1) {
+                issues.add("Query contains subqueries; repeated or correlated subqueries may be expensive.");
+                rewrites.add("Consider replacing repeated subqueries with CTEs, derived tables, or joins when semantics match.");
+            }
+            for (String table : referencedTables) {
+                for (String column : predicateColumns(sql)) {
+                    if (metadata.stream().anyMatch(t -> normalizeName(t.tableName()).equals(normalizeName(table))
+                        && t.indexes().stream().noneMatch(i -> normalizeName(i.columnName()).equals(normalizeName(column))))) {
+                        indexes.add(new IndexRecommendation(table, column, "Column appears in WHERE/JOIN predicates without a visible single-column index.", "Every INSERT/UPDATE/DELETE must maintain the index; cost grows with table write volume and index width.", "Requires extra storage roughly proportional to row count plus indexed column/key size."));
+                    }
+                }
+            }
+            String normalized = normalizeSqlFingerprint(sql);
+            reuse.add("Use normalized fingerprint to deduplicate/query-cache similar SQL: " + normalized);
+            compatibility.add("Target dialect/version: " + productName + " " + productVersion + "; the LLM should adapt LIMIT/OFFSET, quoting, date functions, CTE/window support, and function-based indexes to this version.");
+            String cost = explainExecuted ? "Relative cost should be inferred from EXPLAIN rows plus scan/join signals; JDBC metadata does not expose a portable numeric cost." : "EXPLAIN was not executed, so only heuristic cost signals are available.";
+            return new SqlOptimizationReport(productName, productVersion, sql, explainExecuted, explainPlan, issues, rewrites, indexes, cost, normalized, reuse, compatibility, metadata,
+                List.of("MCP runs/returns EXPLAIN output", "MCP returns table, column, primary key, foreign key, and index metadata", "MCP computes deterministic SQL fingerprints and heuristic anti-pattern signals", "MCP exposes database product/version for dialect compatibility"),
+                List.of("LLM interprets plan semantics by dialect", "LLM prioritizes detected issues by business context", "LLM drafts safe SQL rewrites and migration/index DDL", "LLM explains trade-offs and validates compatibility assumptions"));
+        } catch (Exception e) {
+            logger.error("Error analyzeSqlOptimization message: {}", e.getMessage(), e);
+            throw new ToolExecutionException(getToolDefinition("analyzeSqlOptimization"), e);
         }
     }
 
@@ -278,6 +375,42 @@ public class ExplorerService {
 
     public ErDiagram generateErDiagram(String catalog, String schema, String tableNames, Boolean includeInferredRelationships) {
         return generateErDiagram(catalog, schema, tableNames, includeInferredRelationships, null);
+    }
+
+
+    private String explainPrefix(String productName) {
+        String name = productName == null ? "" : productName.toLowerCase(java.util.Locale.ROOT);
+        if (name.contains("postgresql")) return "EXPLAIN (FORMAT JSON) ";
+        if (name.contains("mysql") || name.contains("mariadb")) return "EXPLAIN FORMAT=JSON ";
+        return "EXPLAIN ";
+    }
+
+    private Set<String> referencedTables(String sql) {
+        Set<String> tables = new java.util.LinkedHashSet<>();
+        Matcher matcher = Pattern.compile("(?i)\\b(from|join)\\s+([\\w.]+)").matcher(sql.replace('"', ' ').replace('`', ' ').replace('[', ' ').replace(']', ' '));
+        while (matcher.find()) {
+            String table = matcher.group(2);
+            if (table.contains(".")) table = table.substring(table.lastIndexOf('.') + 1);
+            tables.add(table);
+        }
+        return tables;
+    }
+
+    private Set<String> predicateColumns(String sql) {
+        Set<String> columns = new java.util.LinkedHashSet<>();
+        Matcher matcher = Pattern.compile("(?i)(?:where|and|or|on)\\s+(?:\\w+\\.)?(\\w+)\\s*(=|<|>|like|in)").matcher(sql.replace('"', ' ').replace('`', ' ').replace('[', ' ').replace(']', ' '));
+        while (matcher.find()) columns.add(matcher.group(1));
+        return columns;
+    }
+
+    private int countOccurrences(String text, String needle) {
+        int count = 0, index = 0;
+        while ((index = text.indexOf(needle, index)) >= 0) { count++; index += needle.length(); }
+        return count;
+    }
+
+    private String normalizeSqlFingerprint(String sql) {
+        return sql.replaceAll("'[^']*'", "?").replaceAll("\\b\\d+(?:\\.\\d+)?\\b", "?").replaceAll("\\s+", " ").trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private List<ColumnDetail> fetchColumnDetails(DatabaseMetaData metaData, String catalog, String schema, String tableName) throws java.sql.SQLException {

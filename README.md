@@ -85,6 +85,16 @@ Keep the pool maximum and query concurrency limit aligned unless the database ha
     - Lists configured database connections and identifies the default connection.
     - Inputs: none
 
+- **analyzeSqlOptimization**
+
+    - Collects database-side optimization signals for an LLM. MCP executes or parses `EXPLAIN`, returns referenced table metadata and existing indexes, detects common issues such as full scans, inefficient joins, repeated subqueries, and functions in predicates, recommends candidate indexes with write/storage cost notes, estimates relative query cost, normalizes SQL for similar-query deduplication/reuse, and returns database product/version compatibility context. The LLM is responsible for interpreting the plan by dialect, prioritizing findings, and drafting safe SQL rewrites or index DDL.
+    - Inputs:
+        - `sql` (string): SQL query to optimize
+        - `catalog` (string, optional): catalog for metadata lookup
+        - `schema` (string, optional): schema for metadata lookup
+        - `runExplain` (boolean, optional): whether to run `EXPLAIN`; defaults to `true`
+        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
+
 ## Prompts 📄
 
 The server contains 1 prompt.

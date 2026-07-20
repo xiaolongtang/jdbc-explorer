@@ -6,6 +6,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Comparator;
+import java.util.Base64;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
@@ -32,10 +37,13 @@ import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
 import com.mike.chao.jdbc.explorer.config.QueryExecutionProperties;
 import com.mike.chao.jdbc.explorer.data.ColumnDetail;
+import com.mike.chao.jdbc.explorer.data.ErDiagram;
+import com.mike.chao.jdbc.explorer.data.ErRelationship;
 import com.mike.chao.jdbc.explorer.data.ForeignKeyDetail;
 import com.mike.chao.jdbc.explorer.data.IndexDetail;
 import com.mike.chao.jdbc.explorer.data.TableDetails;
 import com.mike.chao.jdbc.explorer.data.TableInfo;
+import com.mike.chao.jdbc.explorer.data.RelationshipSource;
 
 @Service
 public class ExplorerService {
@@ -218,6 +226,60 @@ public class ExplorerService {
         return describeTable(catalog, schema, tableName, null);
     }
 
+
+    @Tool(name = "generateErDiagram", description = "Generate a self-contained SVG ER diagram from database metadata. Uses declared foreign keys and can infer likely relationships from table and column naming when foreign keys are not declared.")
+    public ErDiagram generateErDiagram(
+        @ToolParam(description = "Catalog Name", required = false) String catalog,
+        @ToolParam(description = "Schema Name", required = false) String schema,
+        @ToolParam(description = "Optional comma-separated table names. Omit to diagram all user tables visible to JDBC metadata.", required = false) String tableNames,
+        @ToolParam(description = "Infer likely relationships by matching ID columns to table primary keys when foreign keys are not declared. Defaults to true.", required = false) Boolean includeInferredRelationships,
+        @ToolParam(description = "Database connection name from listDatabases. Omit to use the default connection.", required = false) String connectionName) {
+        try (var conn = getDataSource(connectionName).getConnection()) {
+            var metaData = conn.getMetaData();
+            Set<String> requestedTables = parseTableNames(tableNames);
+            List<TableInfo> tableInfos = new ArrayList<>();
+            try (var rs = metaData.getTables(catalog, schema, "%", new String[] {"TABLE"})) {
+                while (rs.next()) {
+                    String tableName = rs.getString("TABLE_NAME");
+                    if (requestedTables.isEmpty() || requestedTables.contains(normalizeName(tableName))) {
+                        tableInfos.add(new TableInfo(
+                            tableName,
+                            rs.getString("TABLE_TYPE"),
+                            rs.getString("REMARKS"),
+                            rs.getString("TABLE_SCHEM"),
+                            rs.getString("TABLE_CAT")
+                        ));
+                    }
+                }
+            }
+            tableInfos.sort(Comparator.comparing(TableInfo::tableName, String.CASE_INSENSITIVE_ORDER));
+
+            List<TableDetails> tables = new ArrayList<>();
+            for (TableInfo tableInfo : tableInfos) {
+                tables.add(new TableDetails(
+                    tableInfo.tableName(),
+                    fetchColumnDetails(metaData, tableInfo.catalog(), tableInfo.schema(), tableInfo.tableName()),
+                    fetchPrimaryKeyColumns(metaData, tableInfo.catalog(), tableInfo.schema(), tableInfo.tableName()),
+                    fetchForeignKeyDetails(metaData, tableInfo.catalog(), tableInfo.schema(), tableInfo.tableName()),
+                    fetchIndexDetails(metaData, tableInfo.catalog(), tableInfo.schema(), tableInfo.tableName())
+                ));
+            }
+
+            List<ErRelationship> relationships = collectRelationships(tables, includeInferredRelationships == null || includeInferredRelationships);
+            String svg = renderErSvg(tables, relationships);
+            String dataUri = "data:image/svg+xml;base64," + Base64.getEncoder().encodeToString(svg.getBytes(StandardCharsets.UTF_8));
+            return new ErDiagram("svg", "image/svg+xml", svg, dataUri, tables, relationships);
+        } catch (Exception e) {
+            logger.error("Error generateErDiagram message: {}", e.getMessage(), e);
+            ToolDefinition toolDefinition = getToolDefinition("generateErDiagram");
+            throw new ToolExecutionException(toolDefinition, e);
+        }
+    }
+
+    public ErDiagram generateErDiagram(String catalog, String schema, String tableNames, Boolean includeInferredRelationships) {
+        return generateErDiagram(catalog, schema, tableNames, includeInferredRelationships, null);
+    }
+
     private List<ColumnDetail> fetchColumnDetails(DatabaseMetaData metaData, String catalog, String schema, String tableName) throws java.sql.SQLException {
         List<ColumnDetail> columns = new ArrayList<>();
         try (var rs = metaData.getColumns(catalog, schema, tableName, null)) {
@@ -279,6 +341,157 @@ public class ExplorerService {
             }
         }
         return indexes;
+    }
+
+
+    private Set<String> parseTableNames(String tableNames) {
+        if (tableNames == null || tableNames.isBlank()) {
+            return Set.of();
+        }
+        return Arrays.stream(tableNames.split(","))
+            .map(String::trim)
+            .filter(name -> !name.isEmpty())
+            .map(this::normalizeName)
+            .collect(java.util.stream.Collectors.toCollection(HashSet::new));
+    }
+
+    private List<ErRelationship> collectRelationships(List<TableDetails> tables, boolean includeInferredRelationships) {
+        List<ErRelationship> relationships = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        Map<String, TableDetails> tablesByName = new LinkedHashMap<>();
+        for (TableDetails table : tables) {
+            tablesByName.put(normalizeName(table.tableName()), table);
+        }
+        for (TableDetails table : tables) {
+            for (ForeignKeyDetail fk : table.foreignKeys()) {
+                addRelationship(relationships, seen, new ErRelationship(
+                    table.tableName(), fk.fkColumnName(), fk.pkTableName(), fk.pkColumnName(),
+                    RelationshipSource.EXPLICIT_FOREIGN_KEY, 1.0
+                ));
+            }
+        }
+        if (!includeInferredRelationships) {
+            return relationships;
+        }
+        for (TableDetails fromTable : tables) {
+            for (ColumnDetail column : fromTable.columns()) {
+                if (fromTable.primaryKeyColumns().contains(column.name())) {
+                    continue;
+                }
+                inferRelationship(fromTable, column, tablesByName).ifPresent(relationship -> addRelationship(relationships, seen, relationship));
+            }
+        }
+        return relationships;
+    }
+
+    private Optional<ErRelationship> inferRelationship(TableDetails fromTable, ColumnDetail column, Map<String, TableDetails> tablesByName) {
+        String columnName = normalizeName(column.name());
+        if (!(columnName.endsWith("id") || columnName.endsWith("_id"))) {
+            return Optional.empty();
+        }
+        String stem = columnName.endsWith("_id") ? columnName.substring(0, columnName.length() - 3) : columnName.substring(0, columnName.length() - 2);
+        List<String> candidateTableNames = List.of(stem, stem + "s", stem + "es", stem.endsWith("y") ? stem.substring(0, stem.length() - 1) + "ies" : stem);
+        for (String candidateTableName : candidateTableNames) {
+            TableDetails toTable = tablesByName.get(candidateTableName);
+            if (toTable == null || normalizeName(toTable.tableName()).equals(normalizeName(fromTable.tableName()))) {
+                continue;
+            }
+            for (String pkColumn : toTable.primaryKeyColumns()) {
+                String normalizedPk = normalizeName(pkColumn);
+                if (normalizedPk.equals(columnName) || normalizedPk.equals("id") || normalizedPk.equals(normalizeName(toTable.tableName()) + "id")) {
+                    return Optional.of(new ErRelationship(
+                        fromTable.tableName(), column.name(), toTable.tableName(), pkColumn,
+                        RelationshipSource.INFERRED_BY_COLUMN_NAME, normalizedPk.equals(columnName) ? 0.92 : 0.82
+                    ));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    private void addRelationship(List<ErRelationship> relationships, Set<String> seen, ErRelationship relationship) {
+        String key = normalizeName(relationship.fromTable()) + "." + normalizeName(relationship.fromColumn())
+            + "->" + normalizeName(relationship.toTable()) + "." + normalizeName(relationship.toColumn());
+        if (seen.add(key)) {
+            relationships.add(relationship);
+        }
+    }
+
+    private String renderErSvg(List<TableDetails> tables, List<ErRelationship> relationships) {
+        int cardWidth = 300;
+        int gapX = 70;
+        int gapY = 56;
+        int columns = Math.max(1, (int) Math.ceil(Math.sqrt(Math.max(1, tables.size()))));
+        Map<String, int[]> positions = new LinkedHashMap<>();
+        List<Integer> rowHeights = new ArrayList<>();
+        for (int i = 0; i < tables.size(); i++) {
+            int row = i / columns;
+            int height = tableCardHeight(tables.get(i));
+            while (rowHeights.size() <= row) {
+                rowHeights.add(0);
+            }
+            rowHeights.set(row, Math.max(rowHeights.get(row), height));
+        }
+        List<Integer> rowTops = new ArrayList<>();
+        int currentTop = 32;
+        for (Integer rowHeight : rowHeights) {
+            rowTops.add(currentTop);
+            currentTop += rowHeight + gapY;
+        }
+        int maxBottom = Math.max(96, currentTop - gapY + 32);
+        for (int i = 0; i < tables.size(); i++) {
+            TableDetails table = tables.get(i);
+            int row = i / columns;
+            int col = i % columns;
+            int height = tableCardHeight(table);
+            int x = 32 + col * (cardWidth + gapX);
+            int y = rowTops.get(row);
+            positions.put(normalizeName(table.tableName()), new int[] {x, y, cardWidth, height});
+        }
+        int width = 64 + columns * cardWidth + (columns - 1) * gapX;
+        StringBuilder svg = new StringBuilder();
+        svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").append(width).append("\" height=\"").append(maxBottom).append("\" viewBox=\"0 0 ").append(width).append(' ').append(maxBottom).append("\">");
+        svg.append("<defs><linearGradient id=\"bg\" x1=\"0\" x2=\"1\" y1=\"0\" y2=\"1\"><stop stop-color=\"#f8fafc\"/><stop offset=\"1\" stop-color=\"#eef2ff\"/></linearGradient><filter id=\"shadow\" x=\"-20%\" y=\"-20%\" width=\"140%\" height=\"140%\"><feDropShadow dx=\"0\" dy=\"10\" stdDeviation=\"10\" flood-color=\"#1e293b\" flood-opacity=\".14\"/></filter></defs>");
+        svg.append("<rect width=\"100%\" height=\"100%\" fill=\"url(#bg)\"/>");
+        for (ErRelationship relationship : relationships) {
+            int[] from = positions.get(normalizeName(relationship.fromTable()));
+            int[] to = positions.get(normalizeName(relationship.toTable()));
+            if (from == null || to == null) continue;
+            String stroke = relationship.source() == RelationshipSource.EXPLICIT_FOREIGN_KEY ? "#2563eb" : "#f97316";
+            String dash = relationship.source() == RelationshipSource.EXPLICIT_FOREIGN_KEY ? "" : " stroke-dasharray=\"7 5\"";
+            int x1 = from[0] + from[2]; int y1 = from[1] + from[3] / 2; int x2 = to[0]; int y2 = to[1] + to[3] / 2;
+            int mx = (x1 + x2) / 2;
+            svg.append("<path d=\"M").append(x1).append(' ').append(y1).append(" C").append(mx).append(' ').append(y1).append(' ').append(mx).append(' ').append(y2).append(' ').append(x2).append(' ').append(y2).append("\" fill=\"none\" stroke=\"").append(stroke).append("\" stroke-width=\"2.5\"").append(dash).append("/>");
+            svg.append("<circle cx=\"").append(x2).append("\" cy=\"").append(y2).append("\" r=\"4\" fill=\"").append(stroke).append("\"/>");
+        }
+        for (TableDetails table : tables) {
+            int[] p = positions.get(normalizeName(table.tableName()));
+            svg.append("<g filter=\"url(#shadow)\"><rect x=\"").append(p[0]).append("\" y=\"").append(p[1]).append("\" width=\"").append(p[2]).append("\" height=\"").append(p[3]).append("\" rx=\"18\" fill=\"#ffffff\" stroke=\"#dbeafe\"/>");
+            svg.append("<rect x=\"").append(p[0]).append("\" y=\"").append(p[1]).append("\" width=\"").append(p[2]).append("\" height=\"54\" rx=\"18\" fill=\"#1d4ed8\"/><text x=\"").append(p[0] + 18).append("\" y=\"").append(p[1] + 34).append("\" fill=\"#fff\" font-family=\"Inter,Segoe UI,Arial,sans-serif\" font-size=\"18\" font-weight=\"700\">").append(escapeXml(table.tableName())).append("</text>");
+            int y = p[1] + 78;
+            for (ColumnDetail c : table.columns().stream().limit(14).toList()) {
+                boolean pk = table.primaryKeyColumns().contains(c.name());
+                svg.append("<text x=\"").append(p[0] + 18).append("\" y=\"").append(y).append("\" fill=\"").append(pk ? "#1d4ed8" : "#334155").append("\" font-family=\"Inter,Segoe UI,Arial,sans-serif\" font-size=\"13\">").append(pk ? "◆ " : "• ").append(escapeXml(c.name())).append(" <tspan fill=\"#64748b\">").append(escapeXml(c.type())).append(c.nullable() ? "" : " not null").append("</tspan></text>");
+                y += 24;
+            }
+            svg.append("</g>");
+        }
+        svg.append("<text x=\"32\" y=\"").append(maxBottom - 12).append("\" fill=\"#64748b\" font-family=\"Inter,Segoe UI,Arial,sans-serif\" font-size=\"12\">solid blue = foreign key, dashed orange = inferred relationship</text>");
+        svg.append("</svg>");
+        return svg.toString();
+    }
+
+    private int tableCardHeight(TableDetails table) {
+        return 86 + Math.min(table.columns().size(), 14) * 24;
+    }
+
+    private String normalizeName(String name) {
+        return name == null ? "" : name.replace("_", "").replace("-", "").toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private String escapeXml(String value) {
+        if (value == null) return "";
+        return value.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;").replace("'", "&apos;");
     }
 
     private DataSource getDataSource(String connectionName) {

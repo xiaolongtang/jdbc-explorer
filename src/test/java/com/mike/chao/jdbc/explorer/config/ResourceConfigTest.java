@@ -42,7 +42,7 @@ class ResourceConfigTest {
         // Call the @Bean method to get the specification
         List<McpServerFeatures.SyncResourceSpecification> specs = resourceConfig.resources(mockBusinessInsights);
         assertNotNull(specs);
-        assertEquals(1, specs.size());
+        assertEquals(2, specs.size());
         resourceSpec = specs.get(0);
         mcpResource = resourceSpec.resource();
         readHandler = resourceSpec.readHandler();
@@ -82,6 +82,27 @@ class ResourceConfigTest {
     }
 
     @Test
+    void testReadHandler_playbookUri_success() {
+        String expectedPlaybook = "advanced playbook";
+        URI playbookUri = URI.create("memo://business-analysis-playbook");
+
+        when(mockReadResourceRequest.uri()).thenReturn(playbookUri.toString());
+        when(mockBusinessInsights.getAnalysisPlaybook()).thenReturn(expectedPlaybook);
+
+        McpSchema.ReadResourceResult result = readHandler.apply(mockExchange, mockReadResourceRequest);
+
+        assertNotNull(result, "ReadResourceResult should not be null.");
+        assertEquals(1, result.contents().size(), "Should contain one content item.");
+        assertTrue(result.contents().get(0) instanceof McpSchema.TextResourceContents, "Content should be TextResourceContents.");
+        McpSchema.TextResourceContents textContent = (McpSchema.TextResourceContents) result.contents().get(0);
+
+        assertEquals(playbookUri.toString(), textContent.uri(), "Content URI should match request URI.");
+        assertEquals("text/plain", textContent.mimeType(), "Content media type should be text/plain.");
+        assertEquals(expectedPlaybook, textContent.text(), "Content text should match analysis playbook.");
+        verify(mockBusinessInsights, times(1)).getAnalysisPlaybook();
+    }
+
+    @Test
     void testReadHandler_unknownUri() {
         URI unknownUri = URI.create("memo://other/resource");
 
@@ -108,6 +129,6 @@ class ResourceConfigTest {
         // This is implicitly tested by setUp, but an explicit assertion can be here
         List<McpServerFeatures.SyncResourceSpecification> specs = resourceConfig.resources(mockBusinessInsights);
         assertNotNull(specs);
-        assertEquals(1, specs.size());
+        assertEquals(2, specs.size());
     }
 }

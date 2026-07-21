@@ -50,6 +50,8 @@ class ToolConfigTest {
     @Mock
     private McpServerFeatures.SyncToolSpecification mockBusinessInsightsSpec;
     @Mock
+    private McpServerFeatures.SyncToolSpecification mockBusinessAnalysisPlaybookSpec;
+    @Mock
     private ToolCallback mockExplorerToolCallback;
 
 
@@ -78,6 +80,7 @@ class ToolConfigTest {
         // Define behavior for provider methods
         when(mockDatabaseInfoToolProvider.getDatabaseInfoTool()).thenReturn(mockDbInfoSpec);
         when(mockBusinessInsightsToolProvider.getAddBusinessInsightsTool()).thenReturn(mockBusinessInsightsSpec);
+        when(mockBusinessInsightsToolProvider.getBusinessAnalysisPlaybookTool()).thenReturn(mockBusinessAnalysisPlaybookSpec);
     }
 
     @AfterEach
@@ -108,20 +111,23 @@ class ToolConfigTest {
         // Verify provider method calls
         verify(mockDatabaseInfoToolProvider, times(1)).getDatabaseInfoTool();
         verify(mockBusinessInsightsToolProvider, times(1)).getAddBusinessInsightsTool();
+        verify(mockBusinessInsightsToolProvider, times(1)).getBusinessAnalysisPlaybookTool();
 
         // Assertions on the returned list
         assertNotNull(toolsList, "The list of tools should not be null.");
-        // Expected size: 1 from ExplorerService + 1 from DatabaseInfoToolProvider + 1 from BusinessInsightsToolProvider
-        assertEquals(3, toolsList.size(), "The list should contain three tool specifications.");
+        // Expected size: 1 from ExplorerService + 1 from DatabaseInfoToolProvider + 2 from BusinessInsightsToolProvider
+        assertEquals(4, toolsList.size(), "The list should contain four tool specifications.");
 
         // Check if the list contains the expected mocked specifications
         assertTrue(toolsList.contains(mockExplorerServiceSpec), "List should contain spec from ExplorerService.");
         assertTrue(toolsList.contains(mockDbInfoSpec), "List should contain spec from DatabaseInfoToolProvider.");
-        assertTrue(toolsList.contains(mockBusinessInsightsSpec), "List should contain spec from BusinessInsightsToolProvider.");
+        assertTrue(toolsList.contains(mockBusinessInsightsSpec), "List should contain insight memo spec from BusinessInsightsToolProvider.");
+        assertTrue(toolsList.contains(mockBusinessAnalysisPlaybookSpec), "List should contain playbook spec from BusinessInsightsToolProvider.");
 
         // Check the order if it's important (it is, due to add())
         assertSame(mockExplorerServiceSpec, toolsList.get(0), "First element should be from ExplorerService.");
         assertSame(mockDbInfoSpec, toolsList.get(1), "Second element should be from DatabaseInfoToolProvider.");
-        assertSame(mockBusinessInsightsSpec, toolsList.get(2), "Third element should be from BusinessInsightsToolProvider.");
+        assertSame(mockBusinessInsightsSpec, toolsList.get(2), "Third element should be insight memo from BusinessInsightsToolProvider.");
+        assertSame(mockBusinessAnalysisPlaybookSpec, toolsList.get(3), "Fourth element should be playbook from BusinessInsightsToolProvider.");
     }
 }

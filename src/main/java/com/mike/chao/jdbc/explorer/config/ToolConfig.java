@@ -31,6 +31,7 @@ public class ToolConfig {
 		List<McpServerFeatures.SyncToolSpecification> syncToolSpecs = new ArrayList<>(McpToolUtils.toSyncToolSpecification(toolCallBacks));
 		syncToolSpecs.add(databaseInfoToolProvider.getDatabaseInfoTool());
 		syncToolSpecs.add(businessInsightsToolProvider.getAddBusinessInsightsTool());
+		syncToolSpecs.add(businessInsightsToolProvider.getBusinessAnalysisPlaybookTool());
 		return syncToolSpecs;
 	}
 }

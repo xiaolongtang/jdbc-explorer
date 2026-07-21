@@ -24,6 +24,8 @@ public class BusinessInsightsToolProvider {
 
     private static final String TOOL_NAME = "addBusinessInsight";
     private static final String TOOL_DESCRIPTION = "Add a business insight discovered during data analysis to the memo.";
+    private static final String PLAYBOOK_TOOL_NAME = "getBusinessAnalysisPlaybook";
+    private static final String PLAYBOOK_TOOL_DESCRIPTION = "Get advanced business analysis templates, root cause workflow, proactive insight scan guidance, and MCP-vs-LLM responsibility split.";
     private static final String INSIGHTS_ARG_KEY = "insights";
 
     private static final McpSchema.JsonSchema INPUT_SCHEMA = new McpSchema.JsonSchema(
@@ -45,6 +47,24 @@ public class BusinessInsightsToolProvider {
      */
     public BusinessInsightsToolProvider(BusinessInsights businessInsights) {
         this.businessInsights = businessInsights;
+    }
+
+    public McpServerFeatures.SyncToolSpecification getBusinessAnalysisPlaybookTool() {
+        var tool = new McpSchema.Tool(
+            PLAYBOOK_TOOL_NAME,
+            PLAYBOOK_TOOL_DESCRIPTION,
+            new McpSchema.JsonSchema("object", Map.of(), List.of(), false)
+        );
+
+        return new McpServerFeatures.SyncToolSpecification(tool, this::handleGetBusinessAnalysisPlaybook);
+    }
+
+    private McpSchema.CallToolResult handleGetBusinessAnalysisPlaybook(McpSyncServerExchange exchange, Map<String, Object> args) {
+        logToolActivity(exchange, "Business analysis playbook retrieved successfully.", LoggingLevel.INFO);
+        return new McpSchema.CallToolResult(
+            List.of(new McpSchema.TextContent(businessInsights.getAnalysisPlaybook())),
+            false
+        );
     }
 
     /**

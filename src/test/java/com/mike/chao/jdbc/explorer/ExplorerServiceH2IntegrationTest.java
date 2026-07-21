@@ -17,6 +17,7 @@ import com.mike.chao.jdbc.explorer.data.RelationshipSource;
 import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
 import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 import com.mike.chao.jdbc.explorer.config.QueryExecutionProperties;
+import com.mike.chao.jdbc.explorer.optimization.SqlOptimizationReport;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -312,6 +313,27 @@ class ExplorerServiceH2IntegrationTest {
                 && "UserID".equals(relationship.fromColumn())
                 && "Users".equals(relationship.toTable())
         ));
+    }
+
+
+    @Test
+    void testAnalyzeSqlOptimizationCollectsExplainMetadataAndSignals() {
+        SqlOptimizationReport report = explorerService.analyzeSqlOptimization(
+            "SELECT * FROM \"Orders\" WHERE YEAR(\"OrderDate\") = 2026",
+            null,
+            "PUBLIC",
+            true,
+            null
+        );
+
+        assertEquals("H2", report.databaseProductName());
+        assertTrue(report.explainExecuted());
+        assertFalse(report.explainPlan().isEmpty());
+        assertTrue(report.referencedTableMetadata().stream().anyMatch(table -> "Orders".equals(table.tableName())));
+        assertTrue(report.detectedIssues().stream().anyMatch(issue -> issue.contains("function") || issue.contains("scan")));
+        assertTrue(report.normalizedSqlFingerprint().contains("?"));
+        assertFalse(report.mcpProvidedSignals().isEmpty());
+        assertFalse(report.llmAnalysisResponsibilities().isEmpty());
     }
 
     private JdbcDataSource createNamedH2DataSource(String databaseName, String markerValue) throws SQLException {

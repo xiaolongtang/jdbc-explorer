@@ -1,6 +1,12 @@
 package com.mike.chao.jdbc.explorer;
 
 import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Queue;
+import java.util.TreeSet;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.HashMap;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -552,14 +558,15 @@ public class ExplorerService {
 
     private String renderErSvg(List<TableDetails> tables, List<ErRelationship> relationships) {
         int cardWidth = 300;
-        int gapX = 70;
-        int gapY = 56;
-        int columns = Math.max(1, (int) Math.ceil(Math.sqrt(Math.max(1, tables.size()))));
+        int gapX = 110;
+        int gapY = 76;
+        List<TableDetails> orderedTables = orderTablesForErLayout(tables, relationships);
+        int columns = Math.max(1, (int) Math.ceil(Math.sqrt(Math.max(1, orderedTables.size()))));
         Map<String, int[]> positions = new LinkedHashMap<>();
         List<Integer> rowHeights = new ArrayList<>();
-        for (int i = 0; i < tables.size(); i++) {
+        for (int i = 0; i < orderedTables.size(); i++) {
             int row = i / columns;
-            int height = tableCardHeight(tables.get(i));
+            int height = tableCardHeight(orderedTables.get(i));
             while (rowHeights.size() <= row) {
                 rowHeights.add(0);
             }
@@ -572,8 +579,8 @@ public class ExplorerService {
             currentTop += rowHeight + gapY;
         }
         int maxBottom = Math.max(96, currentTop - gapY + 32);
-        for (int i = 0; i < tables.size(); i++) {
-            TableDetails table = tables.get(i);
+        for (int i = 0; i < orderedTables.size(); i++) {
+            TableDetails table = orderedTables.get(i);
             int row = i / columns;
             int col = i % columns;
             int height = tableCardHeight(table);
@@ -586,25 +593,29 @@ public class ExplorerService {
         svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").append(width).append("\" height=\"").append(maxBottom).append("\" viewBox=\"0 0 ").append(width).append(' ').append(maxBottom).append("\">");
         svg.append("<defs><linearGradient id=\"bg\" x1=\"0\" x2=\"1\" y1=\"0\" y2=\"1\"><stop stop-color=\"#f8fafc\"/><stop offset=\"1\" stop-color=\"#eef2ff\"/></linearGradient><filter id=\"shadow\" x=\"-20%\" y=\"-20%\" width=\"140%\" height=\"140%\"><feDropShadow dx=\"0\" dy=\"10\" stdDeviation=\"10\" flood-color=\"#1e293b\" flood-opacity=\".14\"/></filter></defs>");
         svg.append("<rect width=\"100%\" height=\"100%\" fill=\"url(#bg)\"/>");
+        Map<String, Integer> routeCounts = new HashMap<>();
         for (ErRelationship relationship : relationships) {
             int[] from = positions.get(normalizeName(relationship.fromTable()));
             int[] to = positions.get(normalizeName(relationship.toTable()));
             if (from == null || to == null) continue;
             String stroke = relationship.source() == RelationshipSource.EXPLICIT_FOREIGN_KEY ? "#2563eb" : "#f97316";
             String dash = relationship.source() == RelationshipSource.EXPLICIT_FOREIGN_KEY ? "" : " stroke-dasharray=\"7 5\"";
-            int x1 = from[0] + from[2]; int y1 = from[1] + from[3] / 2; int x2 = to[0]; int y2 = to[1] + to[3] / 2;
-            int mx = (x1 + x2) / 2;
-            svg.append("<path d=\"M").append(x1).append(' ').append(y1).append(" C").append(mx).append(' ').append(y1).append(' ').append(mx).append(' ').append(y2).append(' ').append(x2).append(' ').append(y2).append("\" fill=\"none\" stroke=\"").append(stroke).append("\" stroke-width=\"2.5\"").append(dash).append("/>");
+            int route = routeCounts.merge(normalizeName(relationship.fromTable()) + "->" + normalizeName(relationship.toTable()), 1, Integer::sum) - 1;
+            int[] anchors = relationshipAnchors(from, to, route);
+            int x1 = anchors[0]; int y1 = anchors[1]; int x2 = anchors[2]; int y2 = anchors[3];
+            int bend = Math.max(48, Math.abs(x2 - x1) / 2);
+            svg.append("<path d=\"M").append(x1).append(' ').append(y1).append(" C").append(x1 + (x1 <= x2 ? bend : -bend)).append(' ').append(y1).append(' ').append(x2 + (x1 <= x2 ? -bend : bend)).append(' ').append(y2).append(' ').append(x2).append(' ').append(y2).append("\" fill=\"none\" stroke=\"").append(stroke).append("\" stroke-width=\"2.2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" opacity=\".82\"").append(dash).append("/>");
             svg.append("<circle cx=\"").append(x2).append("\" cy=\"").append(y2).append("\" r=\"4\" fill=\"").append(stroke).append("\"/>");
         }
-        for (TableDetails table : tables) {
+        for (TableDetails table : orderedTables) {
             int[] p = positions.get(normalizeName(table.tableName()));
             svg.append("<g filter=\"url(#shadow)\"><rect x=\"").append(p[0]).append("\" y=\"").append(p[1]).append("\" width=\"").append(p[2]).append("\" height=\"").append(p[3]).append("\" rx=\"18\" fill=\"#ffffff\" stroke=\"#dbeafe\"/>");
             svg.append("<rect x=\"").append(p[0]).append("\" y=\"").append(p[1]).append("\" width=\"").append(p[2]).append("\" height=\"54\" rx=\"18\" fill=\"#1d4ed8\"/><text x=\"").append(p[0] + 18).append("\" y=\"").append(p[1] + 34).append("\" fill=\"#fff\" font-family=\"Inter,Segoe UI,Arial,sans-serif\" font-size=\"18\" font-weight=\"700\">").append(escapeXml(table.tableName())).append("</text>");
             int y = p[1] + 78;
             for (ColumnDetail c : table.columns().stream().limit(14).toList()) {
                 boolean pk = table.primaryKeyColumns().contains(c.name());
-                svg.append("<text x=\"").append(p[0] + 18).append("\" y=\"").append(y).append("\" fill=\"").append(pk ? "#1d4ed8" : "#334155").append("\" font-family=\"Inter,Segoe UI,Arial,sans-serif\" font-size=\"13\">").append(pk ? "◆ " : "• ").append(escapeXml(c.name())).append(" <tspan fill=\"#64748b\">").append(escapeXml(c.type())).append(c.nullable() ? "" : " not null").append("</tspan></text>");
+                svg.append("<circle cx=\"").append(p[0] + 23).append("\" cy=\"").append(y - 4).append("\" r=\"").append(pk ? 4 : 3).append("\" fill=\"").append(pk ? "#1d4ed8" : "#94a3b8").append("\"/>");
+                svg.append("<text x=\"").append(p[0] + 34).append("\" y=\"").append(y).append("\" fill=\"").append(pk ? "#1d4ed8" : "#334155").append("\" font-family=\"Inter,Segoe UI,Arial,sans-serif\" font-size=\"13\">").append(escapeXml(c.name())).append(" <tspan fill=\"#64748b\">").append(escapeXml(c.type())).append(c.nullable() ? "" : " not null").append("</tspan></text>");
                 y += 24;
             }
             svg.append("</g>");
@@ -612,6 +623,46 @@ public class ExplorerService {
         svg.append("<text x=\"32\" y=\"").append(maxBottom - 12).append("\" fill=\"#64748b\" font-family=\"Inter,Segoe UI,Arial,sans-serif\" font-size=\"12\">solid blue = foreign key, dashed orange = inferred relationship</text>");
         svg.append("</svg>");
         return svg.toString();
+    }
+
+    private List<TableDetails> orderTablesForErLayout(List<TableDetails> tables, List<ErRelationship> relationships) {
+        Map<String, TableDetails> byName = tables.stream().collect(Collectors.toMap(table -> normalizeName(table.tableName()), Function.identity(), (left, right) -> left, LinkedHashMap::new));
+        Map<String, Set<String>> neighbors = new HashMap<>();
+        for (ErRelationship relationship : relationships) {
+            String from = normalizeName(relationship.fromTable());
+            String to = normalizeName(relationship.toTable());
+            if (!byName.containsKey(from) || !byName.containsKey(to)) continue;
+            neighbors.computeIfAbsent(from, key -> new TreeSet<>()).add(to);
+            neighbors.computeIfAbsent(to, key -> new TreeSet<>()).add(from);
+        }
+        List<String> remaining = new ArrayList<>(byName.keySet());
+        remaining.sort(Comparator.comparingInt((String table) -> neighbors.getOrDefault(table, Set.of()).size()).reversed().thenComparing(String::compareTo));
+        List<TableDetails> ordered = new ArrayList<>();
+        Set<String> visited = new HashSet<>();
+        for (String start : remaining) {
+            if (!visited.add(start)) continue;
+            Queue<String> queue = new ArrayDeque<>();
+            queue.add(start);
+            while (!queue.isEmpty()) {
+                String table = queue.remove();
+                ordered.add(byName.get(table));
+                neighbors.getOrDefault(table, Set.of()).stream()
+                    .sorted(Comparator.comparingInt((String neighbor) -> neighbors.getOrDefault(neighbor, Set.of()).size()).reversed().thenComparing(String::compareTo))
+                    .filter(visited::add)
+                    .forEach(queue::add);
+            }
+        }
+        return ordered;
+    }
+
+    private int[] relationshipAnchors(int[] from, int[] to, int route) {
+        int offset = (route % 5 - 2) * 10;
+        boolean fromLeft = from[0] > to[0];
+        int x1 = fromLeft ? from[0] : from[0] + from[2];
+        int x2 = fromLeft ? to[0] + to[2] : to[0];
+        int y1 = from[1] + from[3] / 2 + offset;
+        int y2 = to[1] + to[3] / 2 - offset;
+        return new int[] {x1, y1, x2, y2};
     }
 
     private int tableCardHeight(TableDetails table) {

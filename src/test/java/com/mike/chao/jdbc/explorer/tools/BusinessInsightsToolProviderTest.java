@@ -45,6 +45,22 @@ class BusinessInsightsToolProviderTest {
     }
 
     @Test
+    void testGetBusinessAnalysisPlaybookTool_call_success() {
+        McpServerFeatures.SyncToolSpecification spec = toolProvider.getBusinessAnalysisPlaybookTool();
+        when(mockBusinessInsights.getAnalysisPlaybook()).thenReturn("playbook text");
+
+        CallToolResult result = spec.call().apply(mockExchange, Map.of());
+
+        assertNotNull(result);
+        assertFalse(result.isError());
+        assertEquals(1, result.content().size());
+        assertTrue(result.content().get(0) instanceof TextContent);
+        assertEquals("playbook text", ((TextContent) result.content().get(0)).text());
+        assertEquals("getBusinessAnalysisPlaybook", spec.tool().name());
+        verify(mockBusinessInsights, times(1)).getAnalysisPlaybook();
+    }
+
+    @Test
     void testGetAddBusinessInsightsTool_call_success() {
         McpServerFeatures.SyncToolSpecification spec = toolProvider.getAddBusinessInsightsTool();
         String testInsight = "This is a test insight.";

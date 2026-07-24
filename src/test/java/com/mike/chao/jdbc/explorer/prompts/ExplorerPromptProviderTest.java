@@ -44,5 +44,7 @@ class ExplorerPromptProviderTest {
         assertTrue(msg.content() instanceof TextContent);
         String text = ((TextContent) msg.content()).text();
         assertTrue(text.contains("You are an AI Business data analyst."));
+        assertTrue(text.contains("getBusinessAnalysisPlaybook"));
+        assertTrue(text.contains("MCP tools compute metrics and statistical evidence"));
     }
 }

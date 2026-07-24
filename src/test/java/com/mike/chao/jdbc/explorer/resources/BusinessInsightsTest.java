@@ -33,6 +33,16 @@ class BusinessInsightsTest {
     }
 
     @Test
+    void testGetAnalysisPlaybook() {
+        String playbook = businessInsights.getAnalysisPlaybook();
+
+        assertTrue(playbook.contains("Responsibility split:"));
+        assertTrue(playbook.contains("Funnel analysis"));
+        assertTrue(playbook.contains("Root cause analysis workflow:"));
+        assertTrue(playbook.contains("Hypothesis validation workflow:"));
+    }
+
+    @Test
     void testAddValidInsight() {
         businessInsights.addInsight("Insight 1");
         String result = businessInsights.getInsights();

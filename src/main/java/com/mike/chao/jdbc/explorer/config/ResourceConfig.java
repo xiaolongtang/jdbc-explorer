@@ -24,20 +24,32 @@ public class ResourceConfig {
             "text/plain", 
             null
         );
+        var businessAnalysisPlaybookResource = new McpSchema.Resource(
+            "memo://business-analysis-playbook",
+            "Business Analysis Playbook",
+            "Advanced analysis templates, root cause workflow, proactive insight scans, and MCP-vs-LLM responsibility split",
+            "text/plain",
+            null
+        );
 
         BiFunction<McpSyncServerExchange, McpSchema.ReadResourceRequest, McpSchema.ReadResourceResult> readHandler =
         (exchange, readResourceRequest) -> {
             var uri = readResourceRequest.uri().toString();
+            if (uri.startsWith("memo://business-analysis-playbook")) {
+                var content = new McpSchema.TextResourceContents(uri, "text/plain", businessInsights.getAnalysisPlaybook());
+                return new McpSchema.ReadResourceResult(List.of(content));
+            }
             if (!uri.startsWith("memo://insights")) {
                 return new McpSchema.ReadResourceResult(List.of(
                     new McpSchema.TextResourceContents(uri, "text/plain", "Unknown resource uri")
                 ));
             }
-            
+
             var content = new McpSchema.TextResourceContents(uri, "text/plain", businessInsights.getInsights());
             return new McpSchema.ReadResourceResult(List.of(content));
         };
-        var resourceSpec = new McpServerFeatures.SyncResourceSpecification(businessInsightsResource, readHandler);
-        return List.of(resourceSpec);
+        var businessInsightsSpec = new McpServerFeatures.SyncResourceSpecification(businessInsightsResource, readHandler);
+        var businessAnalysisPlaybookSpec = new McpServerFeatures.SyncResourceSpecification(businessAnalysisPlaybookResource, readHandler);
+        return List.of(businessInsightsSpec, businessAnalysisPlaybookSpec);
     }
 }

@@ -37,6 +37,7 @@ public class ExplorerPromptProvider {
             'describeTable': Describe a table in the database, including column information, primary keys, foreign keys, and indexes.
             'analyzeSqlOptimization': MCP-provided SQL optimization signals: EXPLAIN output, schema/index metadata, detected anti-patterns, index cost notes, normalized SQL fingerprint, and database-version compatibility context. The LLM must interpret these signals, rank risks, and draft SQL rewrite/index recommendations.
             'addBusinessInsight': Append a business insight to the memo, which is a list of insights discovered from data analysis.
+            'getBusinessAnalysisPlaybook': MCP-provided advanced analysis playbook with templates for funnel, retention, cohort, segmentation, RFM, LTV, repeat purchase, attribution, product basket, inventory turnover, gross margin, churn, root cause analysis, proactive insight scans, and hypothesis validation. MCP tools compute metrics and statistical evidence; the LLM chooses the analytical approach, interprets evidence, explains caveats, and turns findings into decisions.
 
             1. Examine the database schema and understand the relationships between tables.
                a. Use the tools available to you to explore the database schema.
@@ -46,8 +47,10 @@ public class ExplorerPromptProvider {
             4. Once the user has made a selection:
                a. Execute the queries and get the data.
                b. Analyze the data and create an interactive dashboard artifact.
-               c. Use the 'addBusinessInsight' tool to add any business insights discovered from the data analysis to the memo
-               d. Use a variety of visualizations such as tables, charts, and graphs to represent the data.
+               c. Use 'getBusinessAnalysisPlaybook' when the user asks for business insight, root cause analysis, proactive monitoring, or hypothesis validation so the response moves from summary to decision analysis.
+               d. Explicitly separate MCP tool work (schema discovery, SQL execution, deterministic metrics, statistical tests, and persisted findings) from LLM work (metric framing, decomposition strategy, interpretation, caveats, and recommended actions).
+               e. Use the 'addBusinessInsight' tool to add decision-ready findings with metric definition, segment, magnitude, confidence, and recommended next action to the memo.
+               f. Use a variety of visualizations such as tables, charts, and graphs to represent the data.
         """;
     
 

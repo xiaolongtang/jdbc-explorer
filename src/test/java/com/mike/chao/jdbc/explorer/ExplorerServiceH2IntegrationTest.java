@@ -18,6 +18,7 @@ import com.mike.chao.jdbc.explorer.config.DatabaseConnectionInfo;
 import com.mike.chao.jdbc.explorer.config.DataSourceRegistry;
 import com.mike.chao.jdbc.explorer.config.QueryExecutionProperties;
 import com.mike.chao.jdbc.explorer.optimization.SqlOptimizationReport;
+import com.mike.chao.jdbc.explorer.quality.DataQualityProfile;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -334,6 +335,25 @@ class ExplorerServiceH2IntegrationTest {
         assertTrue(report.normalizedSqlFingerprint().contains("?"));
         assertFalse(report.mcpProvidedSignals().isEmpty());
         assertFalse(report.llmAnalysisResponsibilities().isEmpty());
+    }
+
+    @Test
+    void testProfileDataQualityCollectsDeterministicSignals() {
+        DataQualityProfile profile = explorerService.profileDataQuality(null, "PUBLIC", "Users", 3, null);
+
+        assertEquals("H2", profile.databaseProductName());
+        assertEquals("Users", profile.tableName());
+        assertEquals(3, profile.rowCount());
+        assertTrue(profile.columns().stream().anyMatch(column ->
+            "Email".equals(column.columnName())
+                && column.nullCount() == 1
+                && column.topValues().size() <= 3
+        ));
+        assertTrue(profile.detectedSignals().stream().anyMatch(signal -> signal.contains("Email")));
+        assertTrue(profile.candidateRuleTypes().contains("completeness"));
+        assertTrue(profile.exampleRuleSql().stream().anyMatch(sql -> sql.contains("<amount_column> < 0")));
+        assertFalse(profile.mcpProvidedSignals().isEmpty());
+        assertFalse(profile.llmAnalysisResponsibilities().isEmpty());
     }
 
     private JdbcDataSource createNamedH2DataSource(String databaseName, String markerValue) throws SQLException {

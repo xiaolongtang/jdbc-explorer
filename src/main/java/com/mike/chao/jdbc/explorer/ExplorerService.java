@@ -54,6 +54,8 @@ import com.mike.chao.jdbc.explorer.data.TableInfo;
 import com.mike.chao.jdbc.explorer.data.RelationshipSource;
 import com.mike.chao.jdbc.explorer.optimization.IndexRecommendation;
 import com.mike.chao.jdbc.explorer.optimization.SqlOptimizationReport;
+import com.mike.chao.jdbc.explorer.quality.ColumnQualityProfile;
+import com.mike.chao.jdbc.explorer.quality.DataQualityProfile;
 
 @Service
 public class ExplorerService {
@@ -139,6 +141,78 @@ public class ExplorerService {
         }
     }
 
+
+    @Tool(name = "profileDataQuality", description = "Profile a table for data quality signals. MCP computes deterministic row counts, null rates, distinct counts, min/max values, string lengths, top values, metadata-backed key hints, and example SQL predicates; the LLM turns user-described business rules into dialect-safe SQL and interprets risk.")
+    public DataQualityProfile profileDataQuality(
+        @ToolParam(description = "Catalog Name for metadata lookup", required = false) String catalog,
+        @ToolParam(description = "Schema Name for metadata lookup", required = false) String schema,
+        @ToolParam(description = "Table name to profile", required = true) String tableName,
+        @ToolParam(description = "Maximum number of Top N values per column. Defaults to 5.", required = false) Integer topN,
+        @ToolParam(description = "Database connection name from listDatabases. Omit to use the default connection.", required = false) String connectionName) {
+        int resolvedTopN = topN == null || topN < 1 ? 5 : Math.min(topN, 20);
+        List<ColumnQualityProfile> columnProfiles = new ArrayList<>();
+        List<String> detectedSignals = new ArrayList<>();
+        List<String> exampleRuleSql = new ArrayList<>();
+        try (var conn = getDataSource(connectionName).getConnection()) {
+            DatabaseMetaData metaData = conn.getMetaData();
+            long rowCount = scalarLong(conn, "SELECT COUNT(*) FROM " + qualifiedTableName(schema, tableName));
+            List<ColumnDetail> columns = fetchColumnDetails(metaData, catalog, schema, tableName);
+            Set<String> primaryKeys = fetchPrimaryKeyColumns(metaData, catalog, schema, tableName).stream()
+                .map(this::normalizeName)
+                .collect(Collectors.toSet());
+            List<ForeignKeyDetail> foreignKeys = fetchForeignKeyDetails(metaData, catalog, schema, tableName);
+
+            for (ColumnDetail column : columns) {
+                String columnRef = quotedIdentifier(column.name());
+                String tableRef = qualifiedTableName(schema, tableName);
+                long nullCount = scalarLong(conn, "SELECT COUNT(*) FROM " + tableRef + " WHERE " + columnRef + " IS NULL");
+                double nullRate = rowCount == 0 ? 0.0 : (double) nullCount / rowCount;
+                Long distinctCount = scalarLong(conn, "SELECT COUNT(DISTINCT " + columnRef + ") FROM " + tableRef);
+                Object minValue = scalarObject(conn, "SELECT MIN(" + columnRef + ") FROM " + tableRef);
+                Object maxValue = scalarObject(conn, "SELECT MAX(" + columnRef + ") FROM " + tableRef);
+                Double averageLength = isTextColumn(column.type())
+                    ? scalarDouble(conn, "SELECT AVG(CHAR_LENGTH(" + columnRef + ")) FROM " + tableRef + " WHERE " + columnRef + " IS NOT NULL")
+                    : null;
+                List<Map<String, Object>> topValues = executeQuery(
+                    "SELECT " + columnRef + " AS \"value\", COUNT(*) AS \"frequency\" FROM " + tableRef
+                        + " GROUP BY " + columnRef + " ORDER BY \"frequency\" DESC LIMIT " + resolvedTopN,
+                    connectionName
+                );
+                List<String> signals = new ArrayList<>();
+                if (nullRate > 0.0) {
+                    signals.add("Column has nulls; validate completeness expectations.");
+                }
+                if (rowCount > 0 && distinctCount == rowCount) {
+                    signals.add("Column is unique in the current sample and may be a candidate key.");
+                }
+                if (isTextColumn(column.type()) && distinctCount != null && distinctCount <= Math.max(20, rowCount / 10)) {
+                    signals.add("Low-cardinality text column may be an enum/status field.");
+                }
+                if (primaryKeys.contains(normalizeName(column.name()))) {
+                    signals.add("Column is declared as a primary key.");
+                }
+                foreignKeys.stream()
+                    .filter(fk -> normalizeName(fk.fkColumnName()).equals(normalizeName(column.name())))
+                    .findFirst()
+                    .ifPresent(fk -> signals.add("Column is declared as a foreign key to " + fk.pkTableName() + "." + fk.pkColumnName() + "."));
+                detectedSignals.addAll(signals.stream().map(signal -> column.name() + ": " + signal).toList());
+                columnProfiles.add(new ColumnQualityProfile(column.name(), column.type(), nullCount, nullRate, distinctCount,
+                    boundCellValue(minValue), boundCellValue(maxValue), averageLength, topValues, signals));
+            }
+
+            exampleRuleSql.add("SELECT * FROM " + qualifiedTableName(schema, tableName) + " WHERE <amount_column> < 0;");
+            exampleRuleSql.add("SELECT * FROM " + qualifiedTableName(schema, tableName) + " WHERE <status_column> = 'paid' AND <paid_at_column> IS NULL;");
+            return new DataQualityProfile(metaData.getDatabaseProductName(), tableName, rowCount, columnProfiles,
+                detectedSignals,
+                List.of("uniqueness", "completeness", "referential integrity", "value domain", "time continuity", "data freshness", "cross-field consistency", "cross-table consistency"),
+                exampleRuleSql,
+                List.of("MCP profiles tables/columns with deterministic SQL", "MCP returns row counts, null rates, distinct counts, min/max, top values, and key metadata", "MCP provides SQL-ready examples and anomaly signals from measured data"),
+                List.of("LLM maps natural-language rules to the correct tables and columns", "LLM writes dialect-safe validation SQL", "LLM judges business severity, false positives, caveats, and remediation steps"));
+        } catch (Exception e) {
+            logger.error("Error profileDataQuality for {} message: {}", tableName, e.getMessage(), e);
+            throw new ToolExecutionException(getToolDefinition("profileDataQuality"), e);
+        }
+    }
 
     @Tool(name = "analyzeSqlOptimization", description = "Collect database-side SQL optimization signals for an LLM. Optionally runs EXPLAIN, inspects referenced table metadata and indexes, flags common anti-patterns, recommends candidate indexes with write/storage cost notes, estimates relative query cost, normalizes similar SQL, and reports database-version compatibility notes.")
     public SqlOptimizationReport analyzeSqlOptimization(
@@ -238,6 +312,50 @@ public class ExplorerService {
 
     public List<Map<String, Object>> executeQuery(String query, String connectionName) {
         return executeQueryResult(query, connectionName).rows();
+    }
+
+    private long scalarLong(java.sql.Connection conn, String sql) throws SQLException {
+        Object value = scalarObject(conn, sql);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return value == null ? 0L : Long.parseLong(value.toString());
+    }
+
+    private Double scalarDouble(java.sql.Connection conn, String sql) throws SQLException {
+        Object value = scalarObject(conn, sql);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        return Double.parseDouble(value.toString());
+    }
+
+    private Object scalarObject(java.sql.Connection conn, String sql) throws SQLException {
+        try (var stmt = conn.createStatement()) {
+            stmt.setQueryTimeout(queryProperties.timeoutSeconds());
+            try (var rs = stmt.executeQuery(sql)) {
+                return rs.next() ? rs.getObject(1) : null;
+            }
+        }
+    }
+
+    private String qualifiedTableName(String schema, String tableName) {
+        if (schema == null || schema.isBlank()) {
+            return quotedIdentifier(tableName);
+        }
+        return quotedIdentifier(schema) + "." + quotedIdentifier(tableName);
+    }
+
+    private String quotedIdentifier(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    private boolean isTextColumn(String jdbcType) {
+        String type = jdbcType == null ? "" : jdbcType.toUpperCase(java.util.Locale.ROOT);
+        return type.contains("CHAR") || type.contains("TEXT") || type.contains("CLOB") || type.contains("STRING");
     }
 
     private Object boundCellValue(Object value) throws SQLException {

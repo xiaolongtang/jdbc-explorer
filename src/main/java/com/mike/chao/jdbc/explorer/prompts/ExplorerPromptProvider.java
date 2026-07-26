@@ -36,6 +36,7 @@ public class ExplorerPromptProvider {
             'getDatabaseInfo': Get information about the database. Run this before anything else to know the SQL dialect, keywords etc..
             'describeTable': Describe a table in the database, including column information, primary keys, foreign keys, and indexes.
             'analyzeSqlOptimization': MCP-provided SQL optimization signals: EXPLAIN output, schema/index metadata, detected anti-patterns, index cost notes, normalized SQL fingerprint, and database-version compatibility context. The LLM must interpret these signals, rank risks, and draft SQL rewrite/index recommendations.
+            'profileDataQuality': MCP-provided data quality profiling: row count, null rate, distinct count, min/max, string length, top values, possible enum/key signals, and example validation SQL. The LLM must translate natural-language rules into SQL, choose the right fields/tables, explain false positives, and separate measured evidence from interpretation.
             'addBusinessInsight': Append a business insight to the memo, which is a list of insights discovered from data analysis.
             'getBusinessAnalysisPlaybook': MCP-provided advanced analysis playbook with templates for funnel, retention, cohort, segmentation, RFM, LTV, repeat purchase, attribution, product basket, inventory turnover, gross margin, churn, root cause analysis, proactive insight scans, and hypothesis validation. MCP tools compute metrics and statistical evidence; the LLM chooses the analytical approach, interprets evidence, explains caveats, and turns findings into decisions.
 
@@ -48,9 +49,10 @@ public class ExplorerPromptProvider {
                a. Execute the queries and get the data.
                b. Analyze the data and create an interactive dashboard artifact.
                c. Use 'getBusinessAnalysisPlaybook' when the user asks for business insight, root cause analysis, proactive monitoring, or hypothesis validation so the response moves from summary to decision analysis.
-               d. Explicitly separate MCP tool work (schema discovery, SQL execution, deterministic metrics, statistical tests, and persisted findings) from LLM work (metric framing, decomposition strategy, interpretation, caveats, and recommended actions).
-               e. Use the 'addBusinessInsight' tool to add decision-ready findings with metric definition, segment, magnitude, confidence, and recommended next action to the memo.
-               f. Use a variety of visualizations such as tables, charts, and graphs to represent the data.
+               d. Use 'profileDataQuality' when the user asks for data quality, profiling, anomaly detection, business-rule validation, or natural-language quality rules. MCP should measure the data and expose metadata; the LLM should generate and explain validation SQL such as "orders amount cannot be below zero" or "paid orders must have paid_at".
+               e. Explicitly separate MCP tool work (schema discovery, SQL execution, deterministic profiling, SQL execution, deterministic metrics, statistical tests, and persisted findings) from LLM work (natural-language rule translation, metric framing, decomposition strategy, interpretation, caveats, and recommended actions).
+               f. Use the 'addBusinessInsight' tool to add decision-ready findings with metric definition, segment, magnitude, confidence, and recommended next action to the memo.
+               g. Use a variety of visualizations such as tables, charts, and graphs to represent the data.
         """;
     
 

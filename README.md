@@ -95,6 +95,16 @@ Keep the pool maximum and query concurrency limit aligned unless the database ha
         - `runExplain` (boolean, optional): whether to run `EXPLAIN`; defaults to `true`
         - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
 
+- **profileDataQuality**
+
+    - Profiles a table for data quality and profiling signals. MCP deterministically computes row count, column null count/rate, distinct count, min/max values, average string length, Top N values, primary-key and foreign-key hints, candidate rule categories, and example validation SQL. The LLM is responsible for mapping natural-language business rules to the correct fields/tables, generating dialect-safe validation SQL, interpreting severity and false positives, and explaining remediation.
+    - Inputs:
+        - `catalog` (string, optional): catalog for metadata lookup
+        - `schema` (string, optional): schema for metadata lookup
+        - `tableName` (string): table to profile
+        - `topN` (integer, optional): maximum Top N values per column; defaults to `5` and is capped at `20`
+        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
+
 ## Prompts 📄
 
 The server contains 1 prompt.

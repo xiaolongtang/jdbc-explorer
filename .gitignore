@@ -31,7 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+!.vscode/
+!.vscode/settings.json
 
 *.sqlite
 *.db
 *.log
+
+# Runtime incident investigation local configuration
+.github/skills/runtime-incident-investigation/assets/service-catalog.local.json

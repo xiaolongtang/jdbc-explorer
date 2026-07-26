@@ -1,0 +1,20 @@
+{
+  "environment": "",
+  "approximateStartTime": "",
+  "approximateEndTime": "",
+  "timezone": "",
+  "apiMethod": "",
+  "apiPath": "",
+  "responseStatus": "",
+  "errorMessage": "",
+  "traceId": "",
+  "requestId": "",
+  "correlationId": "",
+  "businessIdentifiers": {},
+  "observedBehavior": "",
+  "expectedBehavior": "",
+  "reporter": "",
+  "reproductionSteps": [],
+  "candidateService": "",
+  "additionalContext": ""
+}

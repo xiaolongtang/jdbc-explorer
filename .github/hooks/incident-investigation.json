@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "SubagentStart": [
+      {
+        "type": "command",
+        "command": "python3 .github/skills/runtime-incident-investigation/scripts/inject_evidence_contract.py",
+        "windows": "py -3 .github/skills/runtime-incident-investigation/scripts/inject_evidence_contract.py",
+        "linux": "python3 .github/skills/runtime-incident-investigation/scripts/inject_evidence_contract.py",
+        "osx": "python3 .github/skills/runtime-incident-investigation/scripts/inject_evidence_contract.py",
+        "cwd": ".",
+        "timeout": 10
+      }
+    ]
+  }
+}

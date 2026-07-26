@@ -1,0 +1,387 @@
+{
+  "catalogVersion": 1,
+  "services": [
+    {
+      "name": "orders-service",
+      "aliases": [
+        "orders",
+        "order-api"
+      ],
+      "workspaceFolder": "orders-service",
+      "localRepositoryPath": "/workspace/orders-service",
+      "apiPatterns": [
+        "/api/orders/**"
+      ],
+      "errorPatterns": [
+        "OrderConfirmationException",
+        "InventoryClientTimeout"
+      ],
+      "ownedTables": [
+        "orders.app_order",
+        "orders.order_event"
+      ],
+      "logs": {
+        "test": {
+          "sshTarget": "test-orders-01",
+          "currentLogPath": "/var/log/orders/application.log",
+          "archiveLogPath": "/var/log/orders/archive",
+          "archiveGlob": "application-*.log.gz",
+          "timezone": "Asia/Shanghai"
+        },
+        "staging": {
+          "sshTarget": "staging-orders-01",
+          "currentLogPath": "/var/log/orders/application.log",
+          "archiveLogPath": "/var/log/orders/archive",
+          "archiveGlob": "application-*.log.gz",
+          "timezone": "UTC"
+        }
+      },
+      "database": {
+        "test": {
+          "connection": "orders_test",
+          "schemas": [
+            "orders"
+          ],
+          "tables": [
+            {
+              "name": "orders.app_order",
+              "businessKeyColumns": [
+                "order_id"
+              ],
+              "traceColumns": [
+                "trace_id"
+              ],
+              "timeColumns": [
+                "created_at",
+                "updated_at"
+              ],
+              "sensitiveColumns": [
+                "customer_email"
+              ]
+            }
+          ]
+        },
+        "staging": {
+          "connection": "orders_staging",
+          "schemas": [
+            "orders"
+          ],
+          "tables": [
+            {
+              "name": "orders.app_order",
+              "businessKeyColumns": [
+                "order_id"
+              ],
+              "traceColumns": [
+                "trace_id"
+              ],
+              "timeColumns": [
+                "created_at",
+                "updated_at"
+              ],
+              "sensitiveColumns": [
+                "customer_email"
+              ]
+            }
+          ]
+        }
+      },
+      "downstreamServices": [
+        "inventory-service",
+        "payment-service"
+      ]
+    },
+    {
+      "name": "inventory-service",
+      "aliases": [
+        "inventory",
+        "stock-api"
+      ],
+      "workspaceFolder": "inventory-service",
+      "localRepositoryPath": "/workspace/inventory-service",
+      "apiPatterns": [
+        "/api/inventory/**",
+        "/internal/reservations/**"
+      ],
+      "errorPatterns": [
+        "InsufficientStockException",
+        "ReservationConflict"
+      ],
+      "ownedTables": [
+        "inventory.stock_item",
+        "inventory.reservation"
+      ],
+      "logs": {
+        "test": {
+          "sshTarget": "test-inventory-01",
+          "currentLogPath": "/var/log/inventory/application.log",
+          "archiveLogPath": "/var/log/inventory/archive",
+          "archiveGlob": "application-*.log.gz",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "database": {
+        "test": {
+          "connection": "inventory_test",
+          "schemas": [
+            "inventory"
+          ],
+          "tables": [
+            {
+              "name": "inventory.reservation",
+              "businessKeyColumns": [
+                "reservation_id",
+                "order_id"
+              ],
+              "traceColumns": [
+                "trace_id"
+              ],
+              "timeColumns": [
+                "created_at",
+                "expires_at"
+              ],
+              "sensitiveColumns": []
+            }
+          ]
+        }
+      },
+      "downstreamServices": []
+    },
+    {
+      "name": "payment-service",
+      "aliases": [
+        "payments",
+        "billing-api"
+      ],
+      "workspaceFolder": "payment-service",
+      "localRepositoryPath": "/workspace/payment-service",
+      "apiPatterns": [
+        "/api/payments/**"
+      ],
+      "errorPatterns": [
+        "PaymentDeclinedException",
+        "GatewayTimeoutException"
+      ],
+      "ownedTables": [
+        "payments.payment_record",
+        "payments.payment_event"
+      ],
+      "logs": {
+        "test": {
+          "sshTarget": "test-payment-01",
+          "currentLogPath": "/var/log/payment/application.log",
+          "archiveLogPath": "/var/log/payment/archive",
+          "archiveGlob": "application-*.log.gz",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "database": {
+        "test": {
+          "connection": "payments_test",
+          "schemas": [
+            "payments"
+          ],
+          "tables": [
+            {
+              "name": "payments.payment_record",
+              "businessKeyColumns": [
+                "payment_id",
+                "external_reference"
+              ],
+              "traceColumns": [
+                "trace_id",
+                "correlation_id"
+              ],
+              "timeColumns": [
+                "created_at",
+                "updated_at"
+              ],
+              "sensitiveColumns": [
+                "payer_email",
+                "gateway_reference"
+              ]
+            }
+          ]
+        }
+      },
+      "downstreamServices": []
+    },
+    {
+      "name": "customer-service",
+      "aliases": [
+        "customers",
+        "profile-api"
+      ],
+      "workspaceFolder": "customer-service",
+      "localRepositoryPath": "/workspace/customer-service",
+      "apiPatterns": [
+        "/api/customers/**",
+        "/api/profiles/**"
+      ],
+      "errorPatterns": [
+        "CustomerNotFoundException",
+        "ProfileValidationException"
+      ],
+      "ownedTables": [
+        "customer.customer_profile"
+      ],
+      "logs": {
+        "test": {
+          "sshTarget": "test-customer-01",
+          "currentLogPath": "/var/log/customer/application.log",
+          "archiveLogPath": "/var/log/customer/archive",
+          "archiveGlob": "application-*.log.gz",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "database": {
+        "test": {
+          "connection": "customer_test",
+          "schemas": [
+            "customer"
+          ],
+          "tables": [
+            {
+              "name": "customer.customer_profile",
+              "businessKeyColumns": [
+                "customer_id"
+              ],
+              "traceColumns": [
+                "last_trace_id"
+              ],
+              "timeColumns": [
+                "created_at",
+                "updated_at"
+              ],
+              "sensitiveColumns": [
+                "full_name",
+                "email",
+                "phone_number"
+              ]
+            }
+          ]
+        }
+      },
+      "downstreamServices": []
+    },
+    {
+      "name": "fulfillment-service",
+      "aliases": [
+        "fulfillment",
+        "shipping-api"
+      ],
+      "workspaceFolder": "fulfillment-service",
+      "localRepositoryPath": "/workspace/fulfillment-service",
+      "apiPatterns": [
+        "/api/shipments/**",
+        "/internal/fulfillment/**"
+      ],
+      "errorPatterns": [
+        "ShipmentStateException",
+        "CarrierUnavailableException"
+      ],
+      "ownedTables": [
+        "fulfillment.shipment",
+        "fulfillment.shipment_event"
+      ],
+      "logs": {
+        "test": {
+          "sshTarget": "test-fulfillment-01",
+          "currentLogPath": "/var/log/fulfillment/application.log",
+          "archiveLogPath": "/var/log/fulfillment/archive",
+          "archiveGlob": "application-*.log.gz",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "database": {
+        "test": {
+          "connection": "fulfillment_test",
+          "schemas": [
+            "fulfillment"
+          ],
+          "tables": [
+            {
+              "name": "fulfillment.shipment",
+              "businessKeyColumns": [
+                "shipment_id",
+                "order_id"
+              ],
+              "traceColumns": [
+                "trace_id"
+              ],
+              "timeColumns": [
+                "created_at",
+                "updated_at"
+              ],
+              "sensitiveColumns": [
+                "delivery_address"
+              ]
+            }
+          ]
+        }
+      },
+      "downstreamServices": [
+        "notification-service"
+      ]
+    },
+    {
+      "name": "notification-service",
+      "aliases": [
+        "notifications",
+        "message-api"
+      ],
+      "workspaceFolder": "notification-service",
+      "localRepositoryPath": "/workspace/notification-service",
+      "apiPatterns": [
+        "/internal/notifications/**"
+      ],
+      "errorPatterns": [
+        "NotificationDeliveryException",
+        "TemplateResolutionException"
+      ],
+      "ownedTables": [
+        "notification.delivery",
+        "notification.delivery_attempt"
+      ],
+      "logs": {
+        "test": {
+          "sshTarget": "test-notification-01",
+          "currentLogPath": "/var/log/notification/application.log",
+          "archiveLogPath": "/var/log/notification/archive",
+          "archiveGlob": "application-*.log.gz",
+          "timezone": "Asia/Shanghai"
+        }
+      },
+      "database": {
+        "test": {
+          "connection": "notification_test",
+          "schemas": [
+            "notification"
+          ],
+          "tables": [
+            {
+              "name": "notification.delivery",
+              "businessKeyColumns": [
+                "delivery_id",
+                "business_reference"
+              ],
+              "traceColumns": [
+                "trace_id",
+                "correlation_id"
+              ],
+              "timeColumns": [
+                "created_at",
+                "delivered_at"
+              ],
+              "sensitiveColumns": [
+                "recipient",
+                "message_body"
+              ]
+            }
+          ]
+        }
+      },
+      "downstreamServices": []
+    }
+  ]
+}

@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/runtime-incident-investigation/evidence-record.schema.json",
+  "title": "Runtime Incident Evidence Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "sourceType",
+    "environment",
+    "sourceLocation",
+    "timestamp",
+    "observation",
+    "interpretation",
+    "supports",
+    "refutes",
+    "confidence",
+    "limitations",
+    "doesNotProve",
+    "redactions"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^(CODE|LOG|DB|CTX)-[0-9]{3}$"
+    },
+    "sourceType": {
+      "enum": [
+        "code",
+        "log",
+        "database",
+        "context"
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sourceLocation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "codeRevision": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "observation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "interpretation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "supports": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^HYP-[0-9]{3}$"
+      },
+      "uniqueItems": true
+    },
+    "refutes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^HYP-[0-9]{3}$"
+      },
+      "uniqueItems": true
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ]
+    },
+    "limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "doesNotProve": {
+      "type": "string",
+      "minLength": 1
+    },
+    "redactions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

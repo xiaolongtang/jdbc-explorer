@@ -1,325 +1,129 @@
-# JDBC Explorer
+# Runtime Incident Investigation Kit
 
-A [Model Context Protocol](https://modelcontextprotocol.io/introduction) server for connecting LLM to databases via JDBC. This server is implemented using the [Spring AI MCP](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-overview.html) framework. The server exposes tools, a prompt and resources to interact with the connected database.
+This repository contains a reusable, read-only VS Code GitHub Copilot workflow for investigating runtime incidents across local source code, remote service logs, and environment databases. The kit coordinates narrowly scoped evidence agents and produces a complete causal report, repair plan, and stakeholder-ready response without changing code or runtime systems.
 
-[![codecov](https://codecov.io/github/mikechao/jdbc-explorer/graph/badge.svg?token=326RPXDFJP)](https://codecov.io/github/mikechao/jdbc-explorer)
+## Architecture
 
+The `Runtime Incident Investigator` custom agent routes work to four allowed subagents:
 
-## Java version branches
+- `Code Evidence` maps the reported API or symptom to exact source paths and possible code behavior.
+- `Log Evidence` collects bounded runtime evidence through `ssh-mcp-server`.
+- `Database Evidence` runs bounded read-only queries through `jdbc-explorer`.
+- `Incident Synthesizer` cross-checks evidence, reconstructs the timeline and causal chain, and writes the final report.
 
-This repository keeps the same JDBC Explorer functionality available on separate Java baseline branches:
+The runtime skill in `.github/skills/runtime-incident-investigation` provides routing rules, evidence standards, references, templates, configuration assets, and deterministic safety scripts. `PreToolUse` hooks deny unsafe SSH and JDBC operations, and a `SubagentStart` hook injects the evidence contract.
 
-| Branch | Java baseline | Notes |
-|--------|---------------|-------|
-| `main` | JDK 21 | Primary branch for the current JDK 21 build. |
-| `main-jdk-17` | JDK 17 | Compatibility branch that builds and runs the same MCP server behavior on JDK 17. |
+## Prerequisites
 
-The `main-jdk-17` branch changes only the build/runtime baseline and related Maven/Docker configuration for JDK 17 compatibility. The exposed MCP tools, prompt, resources, supported JDBC databases, command-line options, and JSON configuration formats are intended to remain functionally identical to `main`.
+- A current VS Code release with GitHub Copilot Chat, custom agents, agent skills, subagents, and hooks available.
+- Python 3.10 or later. All included scripts use only the Python standard library.
+- A locally registered SSH MCP server for read-only log access.
+- A locally registered JDBC MCP server for read-only database access.
+- Local clones of the services that may be investigated.
 
-When building this branch locally, use JDK 17 or newer and run:
+Never place credentials in this repository. Configure authentication in the MCP servers or an approved secret store.
+
+## Configure the service catalog
+
+1. Open `.github/skills/runtime-incident-investigation/assets/service-catalog.local.json`.
+2. Replace every `TODO_REPLACE_*` value with a local path, API pattern, SSH target alias, log path, database connection alias, schema, table, business key, trace field, or timestamp field.
+3. Add or remove services and environments as needed while preserving the documented schema.
+4. Keep connection aliases only. Do not add JDBC URLs containing passwords, passwords, tokens, private keys, or access keys.
+5. Validate the file before an investigation.
+
+The local catalog is intentionally ignored by Git. Use `service-catalog.example.json` as the shareable reference.
+
+## Configure MCP server IDs
+
+The checked-in agents expect the MCP IDs `ssh-mcp-server` and `jdbc-explorer`. If VS Code registers different IDs:
+
+1. Open the Chat view and use **Configure Tools** or the Agent Customizations diagnostics view to inspect the exact MCP tool prefixes.
+2. Replace `ssh-mcp-server/*` in `.github/agents/log-evidence.agent.md`.
+3. Replace `jdbc-explorer/*` in `.github/agents/database-evidence.agent.md`.
+4. Update the corresponding identifiers in `guard_read_only.py` and `self_check.py`.
+5. Re-run the validation commands below.
+
+Exact MCP tool names vary by implementation. Keep the agents restricted to read-only log and query tools.
+
+## Open the investigation workspace
+
+Replace the six `TODO_REPLACE_SERVICE_*` paths in `incident-investigation.code-workspace` with local service repository paths. Then open that multi-root workspace in VS Code. The first folder is this kit repository; the remaining folders provide local code evidence for candidate services.
+
+## Enable and run the workflow
+
+The workspace enables agent-scoped hooks with:
+
+```json
+{
+  "chat.useCustomAgentHooks": true
+}
+```
+
+Open the Chat view, select `Runtime Incident Investigator`, and submit an incident description. A recommended prompt is:
+
+```text
+Investigate this test-environment issue.
+
+Environment: test
+Approximate time: 2026-07-25 14:00 Asia/Shanghai
+API: POST /api/orders/ORD-10023/confirm
+Observed: The API returned HTTP 500.
+Expected: The order should be confirmed.
+Trace ID: abc-123
+Business ID: ORD-10023
+
+Identify the responsible service, select only the necessary evidence lanes, and
+produce a complete evidence-backed investigation report, repair plan, and a
+ready-to-send response for QA.
+```
+
+Partial input is supported. The agent asks one concise question only when missing facts prevent safe progress.
+
+## Investigation lane selection
+
+The workflow starts with the smallest defensible scope:
+
+- Deterministic validation behavior uses code evidence.
+- HTTP 500 errors, stack traces, timeouts, and downstream failures use logs and code.
+- Missing, stale, duplicate, or incorrect data uses database and code.
+- Unknown writers, unexplained transitions, contradictions, and complex cross-service failures expand to all relevant lanes.
+
+Independent lanes run in parallel when possible. The workflow stops early only when the selected evidence supports a complete causal chain and material alternatives are eliminated. Every conclusion is classified as `CONFIRMED`, `PROBABLE`, or `INCONCLUSIVE`.
+
+## Read-only and security guarantees
+
+- Investigation agents have no editing tools.
+- The main orchestrator has no direct SSH or JDBC tools.
+- JDBC hooks allow only one bounded `SELECT` or read-only `WITH ... SELECT` statement and deny `FOR UPDATE`.
+- SSH hooks allow a small set of bounded read commands and deny redirection, mutation, deployment, package installation, container mutation, and service-control commands.
+- The workflow separates observations from interpretations, never invents evidence, and reports gaps explicitly.
+- Logs and database results are minimized and redacted. Raw prompts, MCP arguments, rows, and logs must not be audit-logged.
+
+Hooks are a safety layer, not a substitute for read-only server accounts and database grants.
+
+## Validate the kit
+
+From the repository root, run:
 
 ```bash
-./mvnw clean package
+python3 .github/skills/runtime-incident-investigation/scripts/validate_service_catalog.py \
+  .github/skills/runtime-incident-investigation/assets/service-catalog.example.json
+python3 .github/skills/runtime-incident-investigation/scripts/validate_service_catalog.py \
+  .github/skills/runtime-incident-investigation/assets/service-catalog.local.json
+python3 -m compileall -q .github/skills/runtime-incident-investigation/scripts
+python3 .github/skills/runtime-incident-investigation/scripts/self_check.py
 ```
 
-## Tools 🛠
-
-The server contains the following tools.
-
-- **addBusinessInsight** 
-
-    - Adds business insights discovered during data analysis to the "Business Insights" resource. Usually executed as part of the prompt "data-explorer"
-    - Inputs:
-        - `insight` (String): business insight discovered during data analysis 
-
-- **executeQuery**
-
-    - Executes a SQL query against the connected database, returning a bounded result with `rows`, `truncated`, `rowLimit`, and `elapsedMilliseconds`
-    - Inputs:
-        - `query` (string): the SQL query to be executed
-        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
-
-### Query safety and concurrency
-
-Each configured database has its own bounded HikariCP connection pool and query concurrency limit. This prevents a burst of parallel MCP tool calls against one database from exhausting connections or starving calls to another database. Query results and individual text/binary cells are bounded before MCP serialization, and queued or running queries have explicit timeouts.
-
-The defaults can be overridden with Spring Boot command-line options:
-
-| Property | Default | Purpose |
-|----------|---------|---------|
-| `db.pool.maximum-size` | `4` | Maximum pooled connections per configured database |
-| `db.pool.minimum-idle` | `0` | Avoid opening unused connections at startup |
-| `db.pool.connection-timeout-ms` | `10000` | Maximum wait for a pooled connection |
-| `db.query.max-rows` | `1000` | Maximum rows returned to the MCP client |
-| `db.query.fetch-size` | `100` | JDBC fetch-size hint |
-| `db.query.timeout-seconds` | `30` | JDBC statement timeout |
-| `db.query.max-concurrent-per-database` | `4` | Fair per-database query concurrency limit |
-| `db.query.queue-timeout-seconds` | `5` | Maximum wait for a query concurrency slot |
-| `db.query.max-cell-characters` | `10000` | Maximum characters or bytes retained per cell |
-
-Keep the pool maximum and query concurrency limit aligned unless the database has a reason to reserve connections for metadata operations. A result with `truncated: true` should be refined with filters, aggregation, or pagination instead of increasing the limit without considering the LLM context size.
-
-- **getTableNames**
-
-    - Gets the table names, including type, schema, and remarks
-    - Inputs:
-        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
-
-- **describeTable**
-    
-    - Describe a table in the database including column information, primary keys, foreign keys, and indexes.
-    - Inputs:
-        - `catalog` (string, optional): Catalog Name
-        - `schema` (string, optional): Schema Name
-        - `tableName` (string): Name of the table to get description for
-        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
-
-- **getDatabaseInfo**
-
-    - Get information about the database including SQL dialect, keywords, database product name, etc.
-    - Inputs:
-        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
-
-- **listDatabases**
-
-    - Lists configured database connections and identifies the default connection.
-    - Inputs: none
-
-- **analyzeSqlOptimization**
-
-    - Collects database-side optimization signals for an LLM. MCP executes or parses `EXPLAIN`, returns referenced table metadata and existing indexes, detects common issues such as full scans, inefficient joins, repeated subqueries, and functions in predicates, recommends candidate indexes with write/storage cost notes, estimates relative query cost, normalizes SQL for similar-query deduplication/reuse, and returns database product/version compatibility context. The LLM is responsible for interpreting the plan by dialect, prioritizing findings, and drafting safe SQL rewrites or index DDL.
-    - Inputs:
-        - `sql` (string): SQL query to optimize
-        - `catalog` (string, optional): catalog for metadata lookup
-        - `schema` (string, optional): schema for metadata lookup
-        - `runExplain` (boolean, optional): whether to run `EXPLAIN`; defaults to `true`
-        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
-
-- **profileDataQuality**
-
-    - Profiles a table for data quality and profiling signals. MCP deterministically computes row count, column null count/rate, distinct count, min/max values, average string length, Top N values, primary-key and foreign-key hints, candidate rule categories, and example validation SQL. The LLM is responsible for mapping natural-language business rules to the correct fields/tables, generating dialect-safe validation SQL, interpreting severity and false positives, and explaining remediation.
-    - Inputs:
-        - `catalog` (string, optional): catalog for metadata lookup
-        - `schema` (string, optional): schema for metadata lookup
-        - `tableName` (string): table to profile
-        - `topN` (integer, optional): maximum Top N values per column; defaults to `5` and is capped at `20`
-        - `connectionName` (string, optional): database connection name from `listDatabases`; omitted uses the default connection
-
-## Prompts 📄
-
-The server contains 1 prompt.
-
-- **data-explorer**
-
-This prompt helps the user explore the data in their databases. It should present the user with a choice of dashboards that the LLM can create. The LLM will then execute the necessary queries and create the selected dashboard using an artifact.
-
-The prompt result in Claude Desktop
-
-<a href="https://mikechao.github.io/images/jdbc-explorer-prompt.webp" target="_blank" rel="noopener noreferrer">
-<img width="380" height="200" src="https://mikechao.github.io/images/jdbc-explorer-prompt.webp" alt="claude desktop example" />
-</a>
-
-## Resources 🗂️
-
-The server contains 1 resource.
-
-- **Business Insights**
-
-    - Contains the list of business insights that the LLM came up with during data analysis.
-    - `uri`: "memo://insights"
-
-## Supported JDBC variants
-
-This server currently supports the following databases.
-
-| Database |
-|----------|
-|sqlite|
-|PostgreSQL|
-|Oracle|
-|h2|
-|MySQL|
-
-## Example Databases
-
-**Netflix Movies**
-
-Sample movie data based on Netflix catalog
-[Netflix sample DB](https://github.com/lerocha/netflixdb)
-
-**Northwind**
-
-Classic Microsoft sample database with customers, orders, products etc.
-
-[Northwind Sqlite](https://github.com/jpwhite3/northwind-SQLite3)
-
-**Chinook**
-
-Sample music store data including artists, albums, tracks, invoices etc.
-
-[Chinook Database](https://github.com/lerocha/chinook-database)
-
-## Usage with Claude Desktop
-
-### From jar
-
-1. Download the jar from the [Releases](https://github.com/mikechao/jdbc-explorer/releases)
-2. Or clone the repo and build the jar with maven
-```bash
-mvn clean package
-```
-
-Add this to your `claude_desktop_config.json`:
-
-#### Sqlite
-```json
-{
-    "mcpServers": {
-		  "jdbc-explorer": {
-			"command": "java",
-			"args": [
-			  "-jar",
-			  "C:\\\\mcp\\\\jdbc.explorer-0.4.0.jar",
-			  "--db.url=jdbc:sqlite:C:\\\\mcp\\\\jdbc-explorer\\\\netflixdb.sqlite"
-			]
-		  }
-	}
-}
-```
-
-#### Database with username and password
-```json
-{
-    "mcpServers": {
-		  "jdbc-explorer": {
-			"command": "java",
-			"args": [
-			  "-jar",
-			  "C:\\\\mcp\\\\jdbc.explorer-0.4.0.jar",
-			  "--db.url=jdbc:postgresql://localhost:5432/chinook",
-			  "--db.username=dbuser",
-			  "--db.password=dbpassword"
-			]
-		  }
-	}
-}
-```
-
-#### Multiple databases from a JSON config file
-
-You can keep using the single database flags above, or provide a JSON file path with `--config-file`. Each database gets a stable `name`; use that value as `connectionName` when calling database tools. If `connectionName` is omitted, the configured `default` connection is used.
-
-Example `databases.json`:
-
-```json
-{
-  "default": "h2_reporting",
-  "databases": [
-    {
-      "name": "h2_reporting",
-      "url": "jdbc:h2:file:C:\\\\mcp\\\\db\\\\reporting",
-      "username": "sa",
-      "password": ""
-    },
-    {
-      "name": "h2_archive",
-      "url": "jdbc:h2:file:C:\\\\mcp\\\\db\\\\archive",
-      "username": "sa",
-      "password": ""
-    },
-    {
-      "name": "postgres_sales",
-      "url": "jdbc:postgresql://localhost:5432/sales",
-      "username": "dbuser",
-      "password": "dbpassword"
-    }
-  ]
-}
-```
-
-Claude Desktop config:
-
-```json
-{
-    "mcpServers": {
-        "jdbc-explorer": {
-            "command": "java",
-            "args": [
-                "-jar",
-                "C:\\\\mcp\\\\jdbc.explorer-0.4.0.jar",
-                "--config-file=C:\\\\mcp\\\\jdbc-explorer\\\\databases.json"
-            ]
-        }
-    }
-}
-```
-
-Named object format is also supported:
-
-```json
-{
-  "defaultConnectionName": "warehouse",
-  "warehouse": {
-    "url": "jdbc:h2:file:C:\\\\mcp\\\\db\\\\warehouse",
-    "username": "sa",
-    "password": ""
-  },
-  "postgres_sales": {
-    "url": "jdbc:postgresql://localhost:5432/sales",
-    "username": "dbuser",
-    "password": "dbpassword"
-  }
-}
-```
-
-### From Docker image
-
-You can either build the image locally or pull it from GitHub Container Registry:
-
-#### Option 1: Pull from GitHub Container Registry
-```bash
-docker pull ghcr.io/mikechao/jdbc-explorer:latest
-```
-
-#### Option 2: Build locally
-
-1. Clone the repo
-2. Build the docker image
-```bash
-docker build -t jdbc-explorer .
-```
-
-Add this to your `claude_desktop_config.json`:
-
-#### Database with username and password
-```json
-{
-    "mcpServers": {
-		  "jdbc-explorer": {
-			"command": "docker",
-			"args": [
-			  "run",
-			  "-i",
-			  "--rm",
-			  "-e",
-			  "DB_URL=jdbc:postgresql://host.docker.internal:5432/chinook",
-			  "-e",
-			  "DB_USERNAME=dbuser",
-			  "-e",
-			  "DB_PASSWORD=dbpassword",
-			  "ghcr.io/mikechao/jdbc-explorer"
-			]
-		  }
-	}
-}
-```
-
-
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This MCP server is licensed under the MIT License. This means you are free to use, modify, and distribute the software, subject to the terms and conditions of the MIT License. For more details, please see the LICENSE file in the project repository.
+On Windows, replace `python3` with `py -3`.
+
+## Troubleshooting
+
+- **Agents do not appear:** Open the multi-root workspace, verify `.github/agents`, reload VS Code, and inspect Chat customization diagnostics.
+- **Hooks do not run:** Confirm `chat.useCustomAgentHooks` is enabled, Python is available, and the hook script paths resolve from the kit repository root.
+- **An MCP tool is unavailable:** Compare the registered MCP ID and tool name with the declarations in the log or database agent.
+- **The catalog fails validation:** Follow each reported JSON path and replace missing, blank, duplicate, or credential-like fields.
+- **Service resolution is ambiguous:** Add a trace, API path, table, exception, workspace, or exact service alias. Do not silently pick a low-confidence candidate.
+- **A safe command is denied:** Narrow it to one supported read operation. Do not bypass the guard with shell composition or redirection.
+- **Evidence is incomplete:** Report the missing lane or inaccessible source and use `PROBABLE` or `INCONCLUSIVE`; never upgrade confidence without evidence.
+
+The existing Java source in this repository implements the `jdbc-explorer` MCP server used by the database evidence agent. Its build remains available through `./mvnw clean package` on the `main-jdk-17` branch.

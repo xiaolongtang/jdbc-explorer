@@ -2,7 +2,7 @@
 
 ## Read-only policy
 
-Investigation must not modify source code, server files, services, containers, infrastructure, configuration, or database data. Evidence agents have no editing tools. The orchestrator has no direct SSH or JDBC tools. Hooks deny unsafe MCP operations, but server accounts and database grants must also be read-only.
+Investigation must not modify source code, server files, services, containers, infrastructure, configuration, or database data. Evidence agents have no editing tools. Fast mode has direct, guarded read-only SSH and JDBC tools; Deep delegates those lanes to its guarded evidence agents. Hooks deny unsafe MCP operations, but server accounts and database grants must also be read-only.
 
 When an operation is blocked, report the requested purpose, the policy category, and a safe read-only alternative. Do not bypass, encode, split, or obscure a denied command.
 

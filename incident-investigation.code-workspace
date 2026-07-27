@@ -5,28 +5,8 @@
       "path": "."
     },
     {
-      "name": "service-1",
-      "path": "TODO_REPLACE_SERVICE_1_LOCAL_REPOSITORY_PATH"
-    },
-    {
-      "name": "service-2",
-      "path": "TODO_REPLACE_SERVICE_2_LOCAL_REPOSITORY_PATH"
-    },
-    {
-      "name": "service-3",
-      "path": "TODO_REPLACE_SERVICE_3_LOCAL_REPOSITORY_PATH"
-    },
-    {
-      "name": "service-4",
-      "path": "TODO_REPLACE_SERVICE_4_LOCAL_REPOSITORY_PATH"
-    },
-    {
-      "name": "service-5",
-      "path": "TODO_REPLACE_SERVICE_5_LOCAL_REPOSITORY_PATH"
-    },
-    {
-      "name": "service-6",
-      "path": "TODO_REPLACE_SERVICE_6_LOCAL_REPOSITORY_PATH"
+      "name": "TODO_REPLACE_ACTIVE_SERVICE",
+      "path": "TODO_REPLACE_ACTIVE_SERVICE_LOCAL_REPOSITORY_PATH"
     }
   ],
   "settings": {

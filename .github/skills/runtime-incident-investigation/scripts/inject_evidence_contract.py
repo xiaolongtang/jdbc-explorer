@@ -9,10 +9,8 @@ from typing import Any
 
 
 INCIDENT_AGENTS = {
-    "Code Evidence",
     "Log Evidence",
     "Database Evidence",
-    "Incident Synthesizer",
 }
 
 EVIDENCE_CONTRACT = """Evidence contract:

@@ -13,6 +13,10 @@ from typing import Any
 
 SQL_KEYS = {"sql", "query", "statement"}
 COMMAND_KEYS = {"command", "cmd", "shellcommand"}
+EXECUTE_SCRIPTS = {
+    ".github/skills/runtime-incident-investigation/scripts/scoped_code_search.py",
+    ".github/skills/runtime-incident-investigation/scripts/validate_service_catalog.py",
+}
 SSH_ALLOWED_COMMANDS = {
     "awk",
     "bzcat",
@@ -335,6 +339,24 @@ def validate_ssh_command(command: str) -> tuple[bool, str]:
     return True, "Bounded read-only SSH command allowed."
 
 
+def validate_local_execute(command: str) -> tuple[bool, str]:
+    """Allow only the two deterministic investigation scripts."""
+    if not command.strip() or has_shell_operator(command):
+        return False, "Execute denied because composition, redirection, or ambiguous syntax is prohibited."
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return False, "Execute denied because command syntax is ambiguous."
+    if len(tokens) < 2 or tokens[0].casefold() not in {"python", "python3", "py"}:
+        return False, "Execute denied; only an approved Python investigation script may run."
+    script_index = 1
+    if tokens[0].casefold() == "py" and len(tokens) > 2 and tokens[1] == "-3":
+        script_index = 2
+    if script_index >= len(tokens) or tokens[script_index].replace("\\", "/") not in EXECUTE_SCRIPTS:
+        return False, "Execute denied; the requested script is not on the Fast allowlist."
+    return True, "Approved bounded read-only investigation script allowed."
+
+
 def tool_leaf(tool_name: str) -> str:
     parts = re.split(r"[/.:]", tool_name.casefold())
     return normalized_key(parts[-1] if parts else tool_name)
@@ -356,8 +378,17 @@ def main() -> int:
     lowered_name = tool_name.casefold()
     is_jdbc = "jdbc-explorer" in lowered_name or "jdbc" in lowered_name
     is_ssh = "ssh-mcp-server" in lowered_name or "ssh" in lowered_name
+    is_execute = tool_leaf(tool_name) in {"execute", "runinterminal"}
 
-    if is_jdbc:
+    if is_execute:
+        commands: list[str] = []
+        collect_named_strings(tool_input, COMMAND_KEYS, commands)
+        if len(commands) != 1:
+            result = response("deny", "Execute denied because exactly one command is required.")
+        else:
+            allowed, reason = validate_local_execute(commands[0])
+            result = response("allow" if allowed else "deny", reason)
+    elif is_jdbc:
         statements: list[str] = []
         collect_named_strings(tool_input, SQL_KEYS, statements)
         if len(statements) != 1:
